@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { EMPTY_READINGS } from '../hooks/readings'
 import {
+  SHARED_LIMITS_FILE,
   newerLimit,
   parseSharedLimits,
   toSharedLimits,
@@ -10,6 +11,7 @@ import {
   HOUR_MS,
   SHARED_LIMITS_PATH,
   START,
+  TEST_HOME,
   answerEngine,
   bandText,
 } from './fixtures'
@@ -109,5 +111,45 @@ test('哪个会话都没有限额读数时不写共享文件', async ($, on) => 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await clock.advance(1000)
 
+  expect(files.has(SHARED_LIMITS_PATH)).toBe(false)
+})
+
+test('本会话没有限额读数（API key 计费）时不借用共享文件，也不改写它', async ($, on) => {
+  const { clock, files } = answerEngine(on)
+  const shared = JSON.stringify({ fiveHour: limit(20), sevenDay: null })
+  files.set(SHARED_LIMITS_PATH, shared)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(1000)
+
+  expect(await bandText($, 'terminal')).not.toContain('5小时')
+  expect(files.get(SHARED_LIMITS_PATH)).toBe(shared)
+})
+
+test('读到半份共享文件时不回写，连续 3 秒读不出来才用本会话的读数覆盖', async ($, on) => {
+  const { clock, engine, files } = answerEngine(on)
+  engine.rateLimits = [fiveHourLimit(30)]
+  const partial = '{"fiveHour":'
+  files.set(SHARED_LIMITS_PATH, partial)
+
+  // 会话开始时读一次，之后每秒一次：第 1、2 次读不出来都不写。
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(1000)
+  expect(files.get(SHARED_LIMITS_PATH)).toBe(partial)
+
+  await clock.advance(1000)
+  const written = parseSharedLimits(files.get(SHARED_LIMITS_PATH) ?? '')
+  expect(written).toEqual({ fiveHour: limit(30), sevenDay: null })
+})
+
+test('设了 CLAUDE_CONFIG_DIR 时共享文件放在它下面', async ($, on) => {
+  const env = { HOME: TEST_HOME, CLAUDE_CONFIG_DIR: '/config/work' }
+  const { clock, engine, files } = answerEngine(on, {}, env)
+  engine.rateLimits = [fiveHourLimit(30)]
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(1000)
+
+  expect(files.has(`/config/work/${SHARED_LIMITS_FILE}`)).toBe(true)
   expect(files.has(SHARED_LIMITS_PATH)).toBe(false)
 })

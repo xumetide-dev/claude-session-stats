@@ -1,9 +1,15 @@
 /**
  * 本会话的累计统计：各事件钩子往里累加，状态栏只读它。
  *
- * 从 mod 加载那一刻开始计；mod 重载时保留，/clear 时清零。
+ * 从 mod 在当前进程中加载那一刻开始计；mod 重载时保留，换了会话（/clear、/resume）
+ * 时清零。
  */
 export type SessionStats = {
+  /**
+   * 这些计数属于哪个会话（`$.session.id()`）；刚清零、还没对上会话时为 null。
+   * 每秒对一次，换了会话就清零重计。
+   */
+  sessionId: string | null
   /** 主对话已生效的上下文压缩次数，不含预计算、被跳过的和子 agent 的。 */
   compactions: number
   /** 所有请求（主对话与子 agent）的 token 总和：输入、输出、缓存读、缓存写。 */
@@ -14,7 +20,11 @@ export type SessionStats = {
   cacheReadTokens: number
   /** 主对话已结束各轮的耗时之和，毫秒。 */
   workMs: number
-  /** 主对话正在进行的那一轮的开始时间；没有进行中的轮次时为 null。 */
+  /**
+   * 主对话正在进行的那一轮的开始时间；没有进行中的轮次时为 null。mod 重载时保留：
+   * 重载可能发生在一轮中途。漏掉了一轮的结束时可能留着旧值，状态栏按引擎的
+   * isWorking 判断此刻在不在跑，不单看它。
+   */
   mainTurnStartedAt: number | null
   /**
    * 主对话最后一轮的结束时间；还没有过轮次时为 null。mod 加载时会话已有轮次、

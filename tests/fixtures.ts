@@ -17,7 +17,7 @@ export const START = 1_000_000
 export const HOUR_MS = 3_600_000
 /** 测试里的 HOME 与跨会话共享限额文件的路径；文件只在内存表里，不碰真实的 HOME。 */
 export const TEST_HOME = '/home/test'
-export const SHARED_LIMITS_PATH = `${TEST_HOME}/${SHARED_LIMITS_FILE}`
+export const SHARED_LIMITS_PATH = `${TEST_HOME}/.claude/${SHARED_LIMITS_FILE}`
 
 export const NO_USAGE: TurnUsage = {
   model: 'm',
@@ -40,6 +40,8 @@ export const BAND = {
 
 /** 引擎这一侧的可变读数：测试改它，下一次每秒刷新就读到新值。 */
 export type EngineSide = {
+  /** 当前会话的 id；改它模拟 /clear、/resume 之后换了会话。 */
+  sessionId: string
   rateLimits: SessionRateLimit[]
   costUsd: number
   agents: AgentInfo[]
@@ -98,12 +100,15 @@ export type AnsweredEngine = {
 }
 
 /**
- * 用内存里的表回答 $.env.get('HOME') 与 $.fs 的读写，返回那张表。
+ * 用内存里的表回答 $.env.get 与 $.fs 的读写，返回那张表。env 缺省只有 HOME。
  * 每个测试都要垫上：否则插件读写的会是真实 HOME 下的共享限额文件。
  */
-export function answerFiles(on: On): Map<string, string> {
+export function answerFiles(
+  on: On,
+  env: Readonly<Record<string, string>> = { HOME: TEST_HOME },
+): Map<string, string> {
   const files = new Map<string, string>()
-  mock.env(on, { HOME: TEST_HOME })
+  mock.env(on, env)
   on('fs.read', (_, e) => {
     const text = files.get(e.path)
 
@@ -126,9 +131,10 @@ export function answerFiles(on: On): Map<string, string> {
 export function answerEngine(
   on: On,
   store: Readonly<Record<string, unknown>> = {},
+  env?: Readonly<Record<string, string>>,
 ): AnsweredEngine {
   const clock = mock.clock(on, { now: START })
-  const files = answerFiles(on)
+  const files = answerFiles(on, env)
   // 不用 mock.store：测试这一侧的 $ 没有 $.store，自己作答才能查看写入的值。
   const stored = new Map<string, unknown>(Object.entries(store))
   on('store.get', (_, e) => ({ value: stored.get(e.key) }))
@@ -138,6 +144,7 @@ export function answerEngine(
     return { value: undefined }
   })
   const engine: EngineSide = {
+    sessionId: 'session-1',
     rateLimits: [], costUsd: 0, agents: [], promptCount: 0,
     context: { window: 200_000, tokens: 12_000, percent: 6 },
     breakdown: breakdownFixture(),
@@ -157,6 +164,7 @@ export function answerEngine(
   })
   on('agent.list', () => ({ value: engine.agents }))
   on('session.turns', () => ({ value: engine.promptCount }))
+  on('session.id', () => ({ value: engine.sessionId }))
 
   return { clock, engine, stored, files }
 }
@@ -197,9 +205,19 @@ export async function findPanelSvg(ui: MountedBand) {
   return svgs.find(svg => !TOGGLE_ALTS.includes(String(svg.props.alt)))
 }
 
+/** 挂载状态栏时引擎给的状态：isWorking 是主对话此刻在不在跑一轮，缺省为空闲。 */
+export type BandState = { isWorking?: boolean }
+
+function bandProps({ isWorking = false }: BandState) {
+  return { ...BAND.props, isWorking }
+}
+
 /** 桌面端画出的面板 Svg 的属性：source 与 alt。 */
-export async function panelProps($: Engine): Promise<{ source: string; alt: string }> {
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+export async function panelProps(
+  $: Engine,
+  state: BandState = {},
+): Promise<{ source: string; alt: string }> {
+  const ui = await $.ui.mount({ ...BAND, props: bandProps(state), surface: 'desktop' })
   const svg = await findPanelSvg(ui)
   await ui.unmount()
 
@@ -210,12 +228,13 @@ export async function panelProps($: Engine): Promise<{ source: string; alt: stri
 export async function bandText(
   $: Engine,
   surface: 'desktop' | 'terminal',
+  state: BandState = {},
 ): Promise<string> {
   if (surface === 'desktop') {
-    return (await panelProps($)).alt
+    return (await panelProps($, state)).alt
   }
 
-  const ui = await $.ui.mount({ ...BAND, surface })
+  const ui = await $.ui.mount({ ...BAND, props: bandProps(state), surface })
   const texts = await ui.findAll({ type: 'Text' })
   await ui.unmount()
 

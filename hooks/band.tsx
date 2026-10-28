@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, On } from 'claude-code'
 
-import type { ContextGrid } from '../types'
+import type { ContextGrid, SessionStats } from '../types'
 import { rowsToText, toRows } from './format'
 import type { Row, Segment } from './format'
 import { CHEVRON_HEIGHT, CHEVRON_WIDTH, chevronSvg } from './panel/chevron'
@@ -58,7 +58,7 @@ export function registerBand(on: On): void {
       return next(e)
     }
 
-    const currentStats = await read($, stats)
+    const currentStats = settleTurn(await read($, stats), e.props.isWorking)
     const currentReadings = await read($, readings)
     const rows = toRows(currentStats, currentReadings)
     const elements = $.ui.resolve(e)
@@ -95,6 +95,15 @@ export function registerBand(on: On): void {
       </Box>
     )
   })
+}
+
+/**
+ * 主对话此刻在不在跑一轮，以引擎的 isWorking 为准：统计里的开始时刻可能是漏掉了
+ * 结束的旧值（见 SessionStats.mainTurnStartedAt），引擎说空闲时按空闲显示，
+ * 时长与耗时不再往上走。
+ */
+function settleTurn(current: SessionStats, isWorking: boolean): SessionStats {
+  return isWorking ? current : { ...current, mainTurnStartedAt: null }
 }
 
 /**

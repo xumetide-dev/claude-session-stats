@@ -195,9 +195,22 @@ test('进行中的轮次与会话时长每秒刷新', async ($, on) => {
   await $.turn.start({ text: 'hi', turnId: 'main' })
   await clock.advance(65_000)
 
-  const text = await bandText($, 'desktop')
+  const text = await bandText($, 'desktop', { isWorking: true })
   expect(text).toContain('时长 1分5秒')
   expect(text).toContain('耗时 1分5秒')
+})
+
+test('漏掉了一轮的结束：引擎说空闲时按空闲显示，时长与耗时不再往上走', async ($, on) => {
+  const { clock } = answerEngine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 'main' })
+  await clock.advance(65_000)
+
+  const text = await bandText($, 'terminal')
+  expect(text).toContain('时长 0秒')
+  expect(text).toContain('耗时 0秒')
 })
 
 test('插件加载进已有轮次的空闲会话：时长按加载时刻停住，不写占位符', async ($, on) => {
@@ -313,6 +326,7 @@ test('没有记账与限额读数时，面板写明没有，而不是画 0', asy
   }))
   on('agent.list', () => ({ value: [] }))
   on('session.turns', () => ({ value: 0 }))
+  on('session.id', () => ({ value: 's1' }))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await clock.advance(20_000)

@@ -8,8 +8,10 @@ import type {
   TurnStepResult,
 } from 'claude-code'
 
-import type { ContextGrid } from '../types'
+import type { ContextGrid, EngineReadings, SessionStats } from '../types'
 import { registerBand, restoreCollapsed } from './band'
+import { rowsToText, toRows } from './format'
+import { carouselPage } from './panel/panel'
 import { EMPTY_READINGS, toContextGrid, toReadings } from './readings'
 import { mergeSharedLimits, publishLimits, readSharedLimits } from './shared-limits'
 import {
@@ -21,11 +23,11 @@ import {
   addMainToolCall,
   addRequestUsage,
   addStreamTiming,
-  assumeTurnEndedBy,
+  adoptSession,
   backfillStats,
   finishMainTurn,
   recordCost,
-  resetForClear,
+  resetForNewSession,
   startMainTurn,
 } from './stats'
 import { markTokenTime, toStreamTiming } from './token-times'
@@ -50,7 +52,8 @@ const grid = atom(
   null as ContextGrid | null,
 )
 
-// 每秒刷新一次：时长、耗时、重置倒计时按秒变化；读数来自引擎的现成查询，不发请求。
+// 每秒刷新一次：主对话跑着一轮时时长与耗时按秒变化；读数来自引擎的现成查询，
+// 不发请求。显示不变时不写回读数，空闲时状态栏不每秒重画（见 isDisplayChanged）。
 const REFRESH_INTERVAL_MS = 1000
 // 上下文格子（含上下文占用）在主对话每次请求结束后刷新一次，另有 15 秒一次的
 // 定时刷新兜底：它要在本地按类别估算 token，比读数贵，而且只在请求之间变化，
@@ -66,31 +69,78 @@ export const register: Register = on => {
 }
 
 /**
- * 读一次引擎的读数，整体替换 readings；写入会让状态栏重画。
+ * 读一次引擎的读数，有变化时整体替换 readings；写入会让状态栏重画。
  * 限额是账号级的，与其他会话经共享文件交换，各窗口显示最新的一份。
- * 花费变了就在花费曲线上记一个点，没变不写 stats。
+ * 计数顺带对上当前会话、记下花费的变化（syncStats）。
  */
 async function refreshReadings($: EngineInterface): Promise<void> {
-  const [now, usage, agents, promptCount, shared] = await Promise.all([
+  const [now, usage, agents, promptCount, sharedFile, sessionId] = await Promise.all([
     $.clock.now(),
     $.session.usage(),
     $.agent.list(),
     $.session.turns(),
     readSharedLimits($),
+    $.session.id(),
   ])
   const own = toReadings({ now, usage, agents, promptCount })
-  const latest = mergeSharedLimits(own, shared)
-  await update($, readings, () => latest)
-  publishLimits($, latest, shared)
+  const latest = mergeSharedLimits(own, sharedFile)
+  publishLimits($, latest, sharedFile)
+  const currentStats = await syncStats($, {
+    sessionId, now, promptCount, costUsd: latest.costUsd,
+  })
+  if (isDisplayChanged(await read($, readings), latest, currentStats)) {
+    await update($, readings, () => latest)
+  }
+}
 
-  const { costUsd } = latest
-  if (costUsd === null) {
-    return
+/**
+ * 新读数要不要写回 $.state。每次写入都让状态栏重画一次，而 now 每秒都变；只在显示
+ * 会变时写：除 now 之外的读数变了，终端那几行字变了（时长、耗时与重置倒计时；
+ * 主对话跑着一轮时按秒走），或到了面板换页的时刻。面板上随时间连续变化的图形
+ * （花费曲线的右端、限额的时间条）空闲时跟着这几种时刻一起更新，至少每 20 秒一次。
+ */
+function isDisplayChanged(
+  previous: EngineReadings,
+  next: EngineReadings,
+  current: SessionStats,
+): boolean {
+  const withoutNow = (at: EngineReadings) => JSON.stringify({ ...at, now: 0 })
+  const textOf = (at: EngineReadings) => rowsToText(toRows(current, at))
+
+  return (
+    withoutNow(previous) !== withoutNow(next) ||
+    carouselPage(previous.now) !== carouselPage(next.now) ||
+    textOf(previous) !== textOf(next)
+  )
+}
+
+/**
+ * 计数对上当前会话：/clear、/resume 之后换了会话就从头计（adoptSession），并立即
+ * 重算上下文格子，不等 15 秒的定时刷新。花费变了就在花费曲线上记一个点。都没变时
+ * 不写 stats。返回写入后的统计。
+ */
+async function syncStats(
+  $: EngineInterface,
+  current: {
+    sessionId: string; now: number; promptCount: number; costUsd: number | null
+  },
+): Promise<SessionStats> {
+  const { sessionId, now, promptCount, costUsd } = current
+  const sync = (value: SessionStats) => {
+    const adopted = adoptSession(value, { sessionId, loadedAt: now, promptCount })
+
+    return costUsd === null ? adopted : recordCost(adopted, now, costUsd)
   }
-  const current = await read($, stats)
-  if (recordCost(current, now, costUsd) !== current) {
-    await update($, stats, value => recordCost(value, now, costUsd))
+  const stored = await read($, stats)
+  if (sync(stored) === stored) {
+    return stored
   }
+  const written = await update($, stats, sync)
+  if (stored.sessionId !== sessionId) {
+    refreshGridSoon($)
+  }
+
+  return written
 }
 
 /** 按 /context 的方式在本地估算一次上下文构成与占用（不发请求），替换 grid。 */
@@ -124,19 +174,22 @@ function repeat(
 }
 
 /**
- * 会话开始与每次重载都会到这里：补齐旧版本统计的字段（含不知道的最后一轮结束
- * 时刻），立即读一次引擎，读回上次的面板收起状态，再起每秒刷新的定时器（模块
- * 重载时引擎会取消旧定时器）。/clear 时清零计数。
+ * 会话开始与每次重载都会到这里：补齐旧版本统计的字段，计数对上当前会话（含不知道
+ * 的最后一轮结束时刻），立即读一次引擎，读回上次的面板收起状态，再起每秒刷新的
+ * 定时器（模块重载时引擎会取消旧定时器）。
+ * /clear 与进程内的 /resume 不再触发 session.start：会话结束时清零计数，下一次
+ * 刷新认下新会话。
  */
 function registerRefresh(on: On): void {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    const [loadedAt, promptCount] = await Promise.all([
+    const [loadedAt, promptCount, sessionId] = await Promise.all([
       $.clock.now(),
       $.session.turns(),
+      $.session.id(),
     ])
     await update($, stats, current =>
-      assumeTurnEndedBy(backfillStats(current), loadedAt, promptCount),
+      adoptSession(backfillStats(current), { sessionId, loadedAt, promptCount }),
     )
     await Promise.all([refreshReadings($), refreshGrid($), restoreCollapsed($)])
     repeat($, REFRESH_INTERVAL_MS, '刷新读数', () => refreshReadings($))
@@ -146,8 +199,8 @@ function registerRefresh(on: On): void {
   })
 
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear') {
-      await update($, stats, resetForClear)
+    if (e.reason === 'clear' || e.reason === 'resume') {
+      await update($, stats, resetForNewSession)
     }
 
     return next(e)
@@ -253,7 +306,9 @@ function refreshGridSoon($: EngineInterface): void {
 
 /**
  * 转发主对话一次请求的流，记下首 token 与末 token 的到达时刻；流结束后计入 token、
- * 速度与 TTFT。
+ * 速度与 TTFT。块到达时先发出读时钟的请求、转发出去，再等时钟的回答：时刻仍是
+ * 到达时的，转发不必等宿主那一来一回。
+ * 流没读完就关了（请求失败或被中断）时结果拿不到，这次请求的 token 不计。
  *
  * 首末 token 怎么认见 token-times.ts。
  */
@@ -264,8 +319,9 @@ async function* forwardMainRequest(
 ): AsyncGenerator<TurnStepChunk, TurnStepResult> {
   let times: TokenTimes = {}
   for await (const chunk of stream) {
-    times = markTokenTime(times, chunk.kind, await $.clock.now())
+    const arrivedAt = $.clock.now()
     yield chunk
+    times = markTokenTime(times, chunk.kind, await arrivedAt)
   }
   const response = await stream.result
   const { usage } = response

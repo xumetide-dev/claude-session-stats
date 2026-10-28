@@ -10,7 +10,7 @@ import {
 import { requestChart } from '../hooks/panel/charts'
 import { buildPanelSvg } from '../hooks/panel/panel'
 import { fitFontSize, textEm } from '../hooks/panel/primitives'
-import { EMPTY_READINGS } from '../hooks/readings'
+import { EMPTY_READINGS, toReadings } from '../hooks/readings'
 import { EMPTY_STATS, assumeTurnEndedBy } from '../hooks/stats'
 import type { EngineReadings, SessionStats } from '../types'
 import { HOUR_MS, START } from './fixtures'
@@ -62,6 +62,14 @@ describe('会话时长', () => {
     const stats = { ...EMPTY_STATS, lastTurnEndedAt: START - 1000 }
     expect(sessionDurationMs(stats, readings)).toBe(0)
   })
+})
+
+test('上下文窗口为 0、引擎没给百分比时占用当作没有读数，不是 NaN', async () => {
+  const usage = {
+    startedAt: START, context: { window: 0, tokens: 1000 }, rateLimits: [],
+  }
+  const readings = toReadings({ now: START, usage, agents: [], promptCount: 0 })
+  expect(readings.contextPercent).toBeNull()
 })
 
 describe('限额窗口', () => {

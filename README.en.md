@@ -42,9 +42,9 @@ state persists across sessions. The collapsed summary:
 
 ### Terminal
 
-The terminal shows up to four lines and wraps them when the window narrows. Without
-rate-limit readings (for example, with API key billing), the rate-limit line is not
-shown.
+The terminal shows up to four lines and wraps them when the window narrows. When the
+session has no rate-limit readings of its own (for example, with API key billing, or
+before the session has received a response), the rate-limit line is not shown.
 
 ```
 压缩 1 │ 会话 3912万 │ 命中率 98.2% │ 速度 ≈129.1 tok/s │ TTFT ≈2.7s │ 花费 $6.51
@@ -81,18 +81,25 @@ Calculation rules:
   session is already idle when the plugin loads, runtime runs up to the load time
   and is corrected when the next main conversation turn ends.
 - Rate limits are per account. Each session writes its readings to
-  `~/.claude/session-stats/rate-limits.json`, and each window shows the most recent
-  reading across all sessions. A window with no reading, or one past its reset
-  time, shows 0%.
+  `session-stats/rate-limits.json` in the Claude Code configuration directory
+  (`~/.claude` by default, or `CLAUDE_CONFIG_DIR` when set), and each window shows
+  the most recent reading across all sessions. A session uses this file only when
+  it has rate-limit readings of its own: the file does not record the account, so
+  accounts separated by `CLAUDE_CONFIG_DIR` each have their own file. A window with
+  no reading, or one past its reset time, shows 0%.
 - On the panel, a rate limit turns orange when the share of quota used exceeds the
   share of the window elapsed, and red when the quota is used up. The terminal
   colors by percentage used: orange from 80%, red at 100%.
 - Session tokens, compactions, work time, tool calls, speed, TTFT, and sub-agent
-  totals are counted by the plugin, starting when it loads in the current
-  process. `/reload-plugins` keeps them; a session resumed with `--resume`
-  starts them from 0. Cost, prompt count, context usage, and rate limits are
+  totals are counted by the plugin, starting when it loads in the current process
+  or when the process switches to the current session. `/reload-plugins` keeps
+  them; a resumed session (`--resume` or `/resume`) starts them from 0, and
+  `/clear` resets them. Cost, prompt count, context usage, and rate limits are
   Claude Code's own readings and cover the whole session. The cost chart starts
-  recording when the plugin loads. `/clear` resets the counters.
+  recording when the plugin loads.
+- When a request fails or is interrupted before the response ends, Claude Code
+  reports no usage for it, and its tokens are not counted in session tokens or the
+  hit rate.
 
 ## Installation
 

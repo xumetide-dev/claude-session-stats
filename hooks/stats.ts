@@ -11,6 +11,7 @@ import type { CostPoint, RequestSample, SessionStats } from '../types'
 export const TIMING_VERSION = 2
 
 export const EMPTY_STATS: SessionStats = {
+  sessionId: null,
   compactions: 0,
   totalTokens: 0,
   promptTokens: 0,
@@ -78,8 +79,9 @@ type StoredStats = Omit<SessionStats, TimingFields> &
  * mod 重载后 $.state 里可能是旧版本的统计：用空统计补齐新加的字段。
  * 旧版本的速度与 TTFT 口径不同（见 StoredStats 与 TIMING_VERSION），合计与样本
  * 不能和新的混算，一并清掉，从下一次请求重新计。
- * 重载发生在轮次结束之后，此时没有进行中的轮次，开始时间一并清掉，
- * 免得错过的 turn.complete 让耗时一直往上涨。
+ * 进行中那一轮的开始时间保留：重载可能发生在一轮中途，新模块照样收得到这一轮的
+ * turn.complete。万一漏掉了，状态栏按引擎的 isWorking 判断空闲（见 band.tsx），
+ * 下一轮开始时覆盖掉。
  */
 export function backfillStats(stored: SessionStats): SessionStats {
   const {
@@ -94,10 +96,31 @@ export function backfillStats(stored: SessionStats): SessionStats {
       firstTokenWaitMs, firstTokenCount, ...rest
     } = current
 
-    return { ...EMPTY_STATS, ...rest, mainTurnStartedAt: null }
+    return { ...EMPTY_STATS, ...rest }
   }
 
-  return { ...EMPTY_STATS, ...current, mainTurnStartedAt: null }
+  return { ...EMPTY_STATS, ...current }
+}
+
+/**
+ * 把计数对上当前会话。会话没换时原样返回。计数刚清零（sessionId 为 null）时认下
+ * 当前会话，计数不动。换了会话（/clear、/resume 之后，旧会话的计数还在）时从头计。
+ * 认下会话时按 assumeTurnEndedBy 补上最后一轮的结束时刻：恢复的会话已有轮次。
+ */
+export function adoptSession(
+  stats: SessionStats,
+  current: { sessionId: string; loadedAt: number; promptCount: number | null },
+): SessionStats {
+  if (stats.sessionId === current.sessionId) {
+    return stats
+  }
+  const base = stats.sessionId === null ? stats : EMPTY_STATS
+
+  return assumeTurnEndedBy(
+    { ...base, sessionId: current.sessionId },
+    current.loadedAt,
+    current.promptCount,
+  )
 }
 
 /** 一次请求的 token 计入会话总量与缓存命中率。主对话和子 agent 的请求都调用。 */
@@ -203,8 +226,8 @@ export function finishMainTurn(
 /**
  * mod 加载（会话开始、重载插件、恢复会话）时补上不知道的最后一轮结束时刻：会话
  * 已经有过轮次、统计里却没有这一项（升级前的统计没有，恢复的会话在别的进程里
- * 跑过），按加载时刻算，最后一轮至迟在这时已经结束。下一轮结束时换成准确的时刻。
- * 还没有过轮次、或已经知道时原样返回。
+ * 或换会话之前跑过），按加载时刻算，最后一轮至迟在这时已经结束。下一轮结束时
+ * 换成准确的时刻。还没有过轮次、或已经知道时原样返回。
  */
 export function assumeTurnEndedBy(
   stats: SessionStats,
@@ -236,9 +259,10 @@ export function addCompaction(stats: SessionStats): SessionStats {
 }
 
 /**
- * /clear 之后会话从头算：清空全部计数。
- * 限额、花费等引擎读数不在这里，由下一次每秒刷新照引擎的新值显示。
+ * 换会话（/clear 或 /resume）时从头算：清空全部计数，sessionId 留空，由下一次
+ * 每秒刷新认下新会话（adoptSession）。限额、花费等引擎读数不在这里，由刷新照
+ * 引擎的新值显示。
  */
-export function resetForClear(): SessionStats {
+export function resetForNewSession(): SessionStats {
   return EMPTY_STATS
 }

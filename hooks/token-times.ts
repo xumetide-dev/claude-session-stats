@@ -44,7 +44,10 @@ export function markTokenTime(
   return { firstAt, lastAt: now }
 }
 
-/** 这次请求的计时；没收到生成内容、或没有输出时为 null，不计时。 */
+/**
+ * 这次请求的计时；没收到生成内容、或没有输出时为 null，不计时。
+ * 时刻取自墙钟：系统校时把时钟往回拨时差值可能为负，按 0 计，不拉低平均 TTFT。
+ */
 export function toStreamTiming(
   times: TokenTimes,
   requestedAt: number,
@@ -55,5 +58,9 @@ export function toStreamTiming(
     return null
   }
 
-  return { outputTokens, ttftMs: firstAt - requestedAt, decodeMs: lastAt - firstAt }
+  return {
+    outputTokens,
+    ttftMs: Math.max(0, firstAt - requestedAt),
+    decodeMs: Math.max(0, lastAt - firstAt),
+  }
 }

@@ -46,10 +46,11 @@ export function toReadings(snapshot: EngineSnapshot): EngineReadings {
   const runningAgents = agents.filter(agent =>
     ACTIVE_AGENT_STATUSES.includes(agent.status),
   ).length
-  // 引擎没给百分比时按 tokens / window 自己算。
+  // 引擎没给百分比时按 tokens / window 自己算；窗口为 0 时算不出，当作没有读数。
+  const canDivide = context.tokens !== undefined && context.window > 0
   const contextPercent =
     context.percent ??
-    (context.tokens === undefined ? null : (context.tokens / context.window) * 100)
+    (canDivide ? ((context.tokens ?? 0) / context.window) * 100 : null)
 
   return {
     now,

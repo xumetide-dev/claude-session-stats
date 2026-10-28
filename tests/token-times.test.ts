@@ -43,3 +43,8 @@ describe('首 token 与末 token', () => {
     expect(toStreamTiming(timesOf([[100, 'text']]), 0, 0)).toBeNull()
   })
 })
+
+test('时钟往回拨时 TTFT 与首末 token 间隔按 0 计，不出负数', async () => {
+  const timing = toStreamTiming({ firstAt: 900, lastAt: 800 }, 1000, 50)
+  expect(timing).toEqual({ outputTokens: 50, ttftMs: 0, decodeMs: 0 })
+})
