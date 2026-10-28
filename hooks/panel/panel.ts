@@ -1,7 +1,7 @@
 import type { ContextGrid, EngineReadings, SessionStats } from '../../types'
 import { formatUsd } from '../summary'
 import { agentsPage, mainLoopPage } from './activity-pages'
-import { CARD_PADDING, cardFrame, pageDots } from './cards'
+import { CARD_PADDING, bigNumber, cardFrame, pageDots } from './cards'
 import { stepChart } from './charts'
 import { contextPage, usagePage } from './context-pages'
 import { dollarIcon } from './icons'
@@ -107,8 +107,11 @@ function costCard(card: Area, { stats, readings }: PanelInput): string {
 
   return (
     title +
-    `<text x="${x}" y="${card.y + 50}" font-size="22" font-weight="600" ` +
-    `fill="${COLORS.text}">${formatUsd(costUsd)}</text>` +
+    bigNumber(
+      { x, y: card.y + 50, maxWidth: card.w - 2 * CARD_PADDING },
+      { value: formatUsd(costUsd), unit: '' },
+      COLORS.text,
+    ) +
     stepChart(
       { x, y: card.y + 62, w: card.w - 2 * CARD_PADDING, h: card.h - 70 },
       stats.costPoints,

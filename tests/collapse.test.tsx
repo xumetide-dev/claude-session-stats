@@ -36,7 +36,7 @@ test('收起后的摘要是一个 Text：段间只隔空格，放不下时行尾
   const summary = texts.find(text => text.props.wrap === 'truncate-end')
   expect(summary?.props.size).toBe('footnote')
   expect(summary?.text).toBe(
-    '压缩 0 │ 会话 0 │ 总缓存 — │ 速度 — │ TTFT — │ 花费 $52.21',
+    '压缩 0 │ 会话 0 │ 命中率 — │ 速度 — │ TTFT — │ 花费 $52.21',
   )
   await ui.unmount()
 })
@@ -79,6 +79,6 @@ test('摘要降低精度：缓存整数百分比，速度整数，TTFT 一位小
   const row = toSummaryRow(stats, { ...EMPTY_READINGS, costUsd: 46.83 })
   const text = row.map(({ label, value }) => `${label} ${value}`).join(' | ')
   expect(text).toBe(
-    '压缩 0 | 会话 30.1M | 总缓存 98% | 速度 112 tok/s | TTFT 5.4s | 花费 $46.83',
+    '压缩 0 | 会话 30.1M | 命中率 98% | 速度 112 tok/s | TTFT 5.4s | 花费 $46.83',
   )
 })

@@ -18,6 +18,8 @@ type ContextInput = {
 }
 
 const HEADER_BASELINE = 22
+// 头部一行右端让给页码点（两个点与间隔）的宽度；头部的数值放不下时缩小字号。
+const PAGE_DOTS_ROOM = 18
 // 上下文点阵：10 行时每格 8 像素。
 const GRID_TOP = 30
 const GRID_SIZE = 80
@@ -25,9 +27,10 @@ const GRID_SIZE = 80
 /** 第一页：压缩次数与上下文构成点阵（/context 那张格子）。 */
 export function contextPage(card: Area, { stats, grid }: ContextInput): string {
   const x = card.x + CARD_PADDING
+  const header = { x, y: card.y + HEADER_BASELINE, maxWidth: headerWidth(card) }
 
   return (
-    labelValue(x, card.y + HEADER_BASELINE, '压缩', String(stats.compactions)) +
+    labelValue(header, '压缩', String(stats.compactions)) +
     dotGrid({ x, y: card.y + GRID_TOP, w: GRID_SIZE, h: GRID_SIZE }, grid) +
     caption(x, card.y + card.h - 10, '上下文构成', { size: 10.5 })
   )
@@ -57,19 +60,27 @@ export function usagePage(card: Area, { stats, readings, grid }: ContextInput): 
   const hitRateText = hitRate === null ? NO_READING : `${(hitRate * 100).toFixed(1)}%`
 
   return (
-    labelValue(x, top + HEADER_BASELINE, '会话', formatCount(stats.totalTokens)) +
+    labelValue(
+      { x, y: top + HEADER_BASELINE, maxWidth: headerWidth(card) },
+      '会话', formatCount(stats.totalTokens),
+    ) +
     caption(x, top + 42, '上下文', { size: 10.5 }) +
     caption(right, top + 42, percentText, {
       size: 10.5, color: COLORS.text, anchor: 'end',
     }) +
     segmentedBar({ x, y: top + 47, w, h: 7 }, 10, (percent ?? 0) / 100) +
     caption(x, top + 67, usageText, { size: 10.5 }) +
-    caption(x, top + 88, '总缓存', { size: 10.5 }) +
+    caption(x, top + 88, '命中率', { size: 10.5 }) +
     caption(right, top + 88, hitRateText, {
       size: 10.5, color: cacheValueColor(hitRate), anchor: 'end',
     }) +
     zoneGauge({ x, y: top + 98, w, h: 26 }, hitRate, CACHE_ZONES)
   )
+}
+
+/** 头部一行能给"标签 值"的宽度：去掉两侧留白与页码点。 */
+function headerWidth(card: Area): number {
+  return card.w - 2 * CARD_PADDING - PAGE_DOTS_ROOM
 }
 
 /**

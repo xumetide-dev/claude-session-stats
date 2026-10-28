@@ -27,7 +27,7 @@ export function toSummaryRow(stats: SessionStats, readings: EngineReadings): Row
     { label: '压缩', value: String(stats.compactions) },
     { label: '会话', value: formatUsCount(stats.totalTokens) },
     {
-      label: '总缓存',
+      label: '命中率',
       value: hitRate === null ? NO_READING : `${Math.round(hitRate * 100)}%`,
     },
     { label: '速度', value: speed === null ? NO_READING : `${Math.round(speed)} tok/s` },

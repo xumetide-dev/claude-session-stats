@@ -97,6 +97,24 @@ export function averageTtft(stats: SessionStats): number | null {
     : stats.firstTokenWaitMs / stats.firstTokenCount
 }
 
+/**
+ * 会话时长：从会话开始到主对话最后一轮结束；正在跑一轮时算到现在。会话空闲时
+ * 不再往上走。mod 加载（或 /clear）以来还没有结束过一轮、也没有进行中的轮次时，
+ * 不知道最后一轮何时结束，为 null；没有会话开始时间时也为 null。
+ */
+export function sessionDurationMs(
+  stats: SessionStats,
+  readings: EngineReadings,
+): number | null {
+  const { now, sessionStartedAt } = readings
+  const endedAt = stats.mainTurnStartedAt === null ? stats.lastTurnEndedAt : now
+  if (sessionStartedAt === null || endedAt === null) {
+    return null
+  }
+
+  return Math.max(0, endedAt - sessionStartedAt)
+}
+
 /** 主对话耗时：已结束各轮之和，加上进行中那一轮到现在为止的时长。 */
 export function liveWorkMs(stats: SessionStats, now: number): number {
   const runningMs =
@@ -126,14 +144,14 @@ function usageRow(stats: SessionStats, readings: EngineReadings): Row {
   const speed = outputSpeed(stats)
   const ttft = averageTtft(stats)
   const { costUsd } = readings
-  // 速度从首个流式块计到流结束，TTFT 从发出请求计到首个流式块，都是近似值。
+  // 速度只算首 token 到末 token 之间，TTFT 从发出请求计到首 token，口径见 token-times.ts。
   const hitRateText = hitRate === null ? NO_READING : `${(hitRate * 100).toFixed(1)}%`
   const speedText = speed === null ? NO_READING : `≈${speed.toFixed(1)} tok/s`
   const ttftText = ttft === null ? NO_READING : `≈${(ttft / MS_PER_SECOND).toFixed(1)}s`
   const segments: (Segment | null)[] = [
     { label: '压缩', value: String(stats.compactions) },
     { label: '会话', value: formatCount(stats.totalTokens) },
-    { label: '总缓存', value: hitRateText },
+    { label: '命中率', value: hitRateText },
     { label: '速度', value: speedText },
     { label: 'TTFT', value: ttftText },
     costUsd === null ? null : { label: '花费', value: `$${costUsd.toFixed(2)}` },
@@ -143,11 +161,10 @@ function usageRow(stats: SessionStats, readings: EngineReadings): Row {
 }
 
 function timeRow(stats: SessionStats, readings: EngineReadings): Row {
-  const { now, sessionStartedAt, promptCount } = readings
+  const { now, promptCount } = readings
+  const sessionMs = sessionDurationMs(stats, readings)
   const segments: (Segment | null)[] = [
-    sessionStartedAt === null
-      ? null
-      : { label: '时长', value: formatDuration(now - sessionStartedAt) },
+    { label: '时长', value: sessionMs === null ? NO_READING : formatDuration(sessionMs) },
     { label: '耗时', value: formatDuration(liveWorkMs(stats, now)) },
     promptCount === null ? null : { label: 'Prompt', value: String(promptCount) },
     { label: '工具', value: `${stats.toolCalls}次 · ${formatDuration(stats.toolMs)}` },
@@ -158,11 +175,43 @@ function timeRow(stats: SessionStats, readings: EngineReadings): Row {
 
 function limitRow(readings: EngineReadings): Row {
   const { now } = readings
+  const { fiveHour, sevenDay } = currentLimits(readings)
 
   return withoutMissing([
-    limitSegment('5小时', readings.fiveHour, now),
-    limitSegment('7天', readings.sevenDay, now),
+    limitSegment('5小时', fiveHour, now),
+    limitSegment('7天', sevenDay, now),
   ])
+}
+
+/** 窗口还没开始计时的读数：没有用量，也没有重置时刻。 */
+export const IDLE_LIMIT: RateLimitReading = { percentUsed: 0, resetsAt: null }
+
+/**
+ * 此刻的两个限额窗口。引擎给的是最近一次响应带回的读数，按两条规则修正后再显示：
+ * - 过了重置时刻的读数已作废：窗口重置后、下一次请求之前没有用量，按 IDLE_LIMIT；
+ * - 只有一个窗口有读数时，另一个按 IDLE_LIMIT：5 小时窗口用量为 0 时，引擎的
+ *   读数里会没有这一项。
+ * 两个窗口都没有读数（API key 计费等没有限额的账号）时都为 null。
+ */
+export function currentLimits(readings: EngineReadings): {
+  fiveHour: RateLimitReading | null
+  sevenDay: RateLimitReading | null
+} {
+  const { now, fiveHour, sevenDay } = readings
+  if (fiveHour === null && sevenDay === null) {
+    return { fiveHour: null, sevenDay: null }
+  }
+  const current = (limit: RateLimitReading | null): RateLimitReading =>
+    limit === null || (limit.resetsAt !== null && limit.resetsAt <= now)
+      ? IDLE_LIMIT
+      : limit
+
+  return { fiveHour: current(fiveHour), sevenDay: current(sevenDay) }
+}
+
+/** 窗口还没开始计时：没有用量，也没有重置时刻。 */
+export function isIdleLimit(limit: RateLimitReading): boolean {
+  return limit.percentUsed === 0 && limit.resetsAt === null
 }
 
 function agentRow(stats: SessionStats, readings: EngineReadings): Row {

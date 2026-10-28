@@ -16,13 +16,23 @@ export type SessionStats = {
   workMs: number
   /** 主对话正在进行的那一轮的开始时间；没有进行中的轮次时为 null。 */
   mainTurnStartedAt: number | null
-  /** 主对话各次请求首 token 之后的输出 token（含思考）之和，速度的分子。 */
+  /**
+   * 主对话最后一轮的结束时间；mod 加载（或 /clear）以来还没有结束过一轮时为 null。
+   * 会话时长算到这里：空闲时不再往上走。
+   */
+  lastTurnEndedAt: number | null
+  /** 速度与 TTFT 的计时口径版本；与现行版本不同时，重载后计时的合计与样本清掉。 */
+  timingVersion: number
+  /**
+   * 主对话各次请求首 token 之后的输出 token（含思考）之和，速度的分子。首末 token
+   * 相隔不足 1 秒的请求不计。
+   */
   decodedTokens: number
-  /** 主对话各次请求从首 token 到末 token 的时长之和，毫秒，速度的分母。 */
+  /** 同一批请求从首 token 到末 token 的时长之和，毫秒，速度的分母。 */
   decodeMs: number
   /**
    * 主对话各次请求从发出到首 token 的时长之和，毫秒（TTFT 的分子）。思考的 token
-   * 也算首 token：思考内容不显示时，取思考块打开的时刻。
+   * 也算首 token：思考内容不显示时，取响应第一个块到达的时刻。
    */
   firstTokenWaitMs: number
   /** 计入 TTFT 的请求数（TTFT 的分母）。 */
@@ -45,7 +55,7 @@ export type SessionStats = {
 
 /** 主对话一次请求的样本：速度柱子与 TTFT 曲线共用横轴。 */
 export type RequestSample = {
-  /** 输出速度，token/秒；首末 token 相隔不足 0.5 秒的请求为 null（速度是离群值）。 */
+  /** 输出速度，token/秒；首末 token 相隔不足 1 秒的请求为 null（速度是离群值）。 */
   speed: number | null
   /** 从发出请求到首 token，毫秒。 */
   ttftMs: number | null

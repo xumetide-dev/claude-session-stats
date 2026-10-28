@@ -5,6 +5,11 @@ import type { CostPoint, RequestSample, SessionStats } from '../types'
 // 统计的累加规则。全部是纯函数：输入旧统计，返回新统计，由 register.tsx 经
 // `update($, atom, fn)` 写回 $.state。
 
+// 速度与 TTFT 的计时口径版本，口径改了就加一：重载后旧口径的合计与样本整条清掉，
+// 不与新的混算。1：首 token 取思考块的开始，不足 0.5 秒的请求计入总速度；
+// 2：首 token 取响应的第一个块（见 token-times.ts），不足 1 秒的请求不计速度。
+export const TIMING_VERSION = 2
+
 export const EMPTY_STATS: SessionStats = {
   compactions: 0,
   totalTokens: 0,
@@ -12,6 +17,8 @@ export const EMPTY_STATS: SessionStats = {
   cacheReadTokens: 0,
   workMs: 0,
   mainTurnStartedAt: null,
+  lastTurnEndedAt: null,
+  timingVersion: TIMING_VERSION,
   decodedTokens: 0,
   decodeMs: 0,
   firstTokenWaitMs: 0,
@@ -28,10 +35,11 @@ export const EMPTY_STATS: SessionStats = {
 // 速度与 TTFT 小图保留最近 40 次请求；花费曲线最多 120 个点。
 const MAX_REQUEST_SAMPLES = 40
 const MAX_COST_POINTS = 120
-// 首末 token 相隔不足 0.5 秒的请求在小图里没有速度柱子（TTFT 照记）：输出几个
-// token 就结束的请求，时长接近 0，又常是一批 token 一起到达，算出来的速度是离群值，
-// 把其余柱子压扁。总速度仍计入它们。
-const MIN_SAMPLE_DECODE_MS = 500
+// 首末 token 相隔不足 1 秒的请求不计速度，总速度与小图的柱子都不计（TTFT 照记）：
+// token 是一批一批到达的（工具参数整段到达，思考期间只有空块），窗口短时一批的
+// 早晚就能让速度差出几倍。实测（2026-10-28，31 次请求）：窗口 1 到 1.7 秒的请求是
+// 102–143 tok/s，与长请求同一范围；不足 1 秒的 3 次是 171、5810 tok/s 这类离群值。
+const MIN_SPEED_WINDOW_MS = 1000
 const MS_PER_SECOND = 1000
 
 /** 一次请求计时的结果，主对话的才计入速度与 TTFT。 */
@@ -46,7 +54,7 @@ export type StreamTiming = {
 
 /** 现行的计时字段：旧版本的统计里没有，按它们判断计时口径是不是旧的。 */
 type TimingFields =
-  | 'recentRequests' | 'decodedTokens' | 'decodeMs'
+  | 'timingVersion' | 'recentRequests' | 'decodedTokens' | 'decodeMs'
   | 'firstTokenWaitMs' | 'firstTokenCount'
 
 /**
@@ -68,8 +76,8 @@ type StoredStats = Omit<SessionStats, TimingFields> &
 
 /**
  * mod 重载后 $.state 里可能是旧版本的统计：用空统计补齐新加的字段。
- * 旧版本的速度与 TTFT 口径不同（见 StoredStats），合计与样本不能和新的混算，
- * 一并清掉，从下一次请求重新计。
+ * 旧版本的速度与 TTFT 口径不同（见 StoredStats 与 TIMING_VERSION），合计与样本
+ * 不能和新的混算，一并清掉，从下一次请求重新计。
  * 重载发生在轮次结束之后，此时没有进行中的轮次，开始时间一并清掉，
  * 免得错过的 turn.complete 让耗时一直往上涨。
  */
@@ -78,9 +86,12 @@ export function backfillStats(stored: SessionStats): SessionStats {
     recentSpeeds, streamedOutputTokens, streamMs, timedOutputTokens, generationMs,
     firstChunkWaitMs, firstChunkCount, ...current
   } = stored as StoredStats
-  if (current.decodeMs === undefined) {
+  const isCurrentTiming =
+    current.decodeMs !== undefined && current.timingVersion === TIMING_VERSION
+  if (!isCurrentTiming) {
     const {
-      recentRequests, decodedTokens, firstTokenWaitMs, firstTokenCount, ...rest
+      timingVersion, recentRequests, decodedTokens, decodeMs,
+      firstTokenWaitMs, firstTokenCount, ...rest
     } = current
 
     return { ...EMPTY_STATS, ...rest, mainTurnStartedAt: null }
@@ -122,17 +133,17 @@ export function addAgentTokens(stats: SessionStats, usage: ModelUsage): SessionS
  *
  * 速度按通行的单请求口径（vLLM、AIPerf、Artificial Analysis）：首 token 之后的
  * 输出 token 数除以首末 token 之间的时长。首 token 的到达是计时起点，不算在窗口里
- * 生成的 token 内。首末 token 同时到达的请求没有时长，只计 TTFT。
+ * 生成的 token 内。首末 token 相隔不足 MIN_SPEED_WINDOW_MS 的请求只计 TTFT。
  */
 export function addStreamTiming(
   stats: SessionStats,
   timing: StreamTiming,
 ): SessionStats {
-  const hasDecodeTime = timing.decodeMs > 0
-  const decodedTokens = hasDecodeTime ? Math.max(0, timing.outputTokens - 1) : 0
-  const isSpeedSampled = timing.decodeMs >= MIN_SAMPLE_DECODE_MS
+  const isSpeedCounted = timing.decodeMs >= MIN_SPEED_WINDOW_MS
+  const decodedTokens = isSpeedCounted ? Math.max(0, timing.outputTokens - 1) : 0
+  const decodeMs = isSpeedCounted ? timing.decodeMs : 0
   const sample: RequestSample = {
-    speed: isSpeedSampled ? decodedTokens / (timing.decodeMs / MS_PER_SECOND) : null,
+    speed: isSpeedCounted ? decodedTokens / (decodeMs / MS_PER_SECOND) : null,
     ttftMs: timing.ttftMs,
   }
   const recentRequests = [...stats.recentRequests, sample].slice(-MAX_REQUEST_SAMPLES)
@@ -140,7 +151,7 @@ export function addStreamTiming(
   return {
     ...stats,
     decodedTokens: stats.decodedTokens + decodedTokens,
-    decodeMs: stats.decodeMs + timing.decodeMs,
+    decodeMs: stats.decodeMs + decodeMs,
     firstTokenWaitMs: stats.firstTokenWaitMs + timing.ttftMs,
     firstTokenCount: stats.firstTokenCount + 1,
     recentRequests,
@@ -176,9 +187,17 @@ export function startMainTurn(stats: SessionStats, startedAt: number): SessionSt
   return { ...stats, mainTurnStartedAt: startedAt }
 }
 
-/** 主对话一轮结束：耗时按引擎报的时长计入，进行中标记清掉。 */
-export function finishMainTurn(stats: SessionStats, durationMs: number): SessionStats {
-  return { ...stats, workMs: stats.workMs + durationMs, mainTurnStartedAt: null }
+/** 主对话一轮结束：耗时按引擎报的时长计入，记下结束时刻，进行中标记清掉。 */
+export function finishMainTurn(
+  stats: SessionStats,
+  turn: { durationMs: number; endedAt: number },
+): SessionStats {
+  return {
+    ...stats,
+    workMs: stats.workMs + turn.durationMs,
+    mainTurnStartedAt: null,
+    lastTurnEndedAt: turn.endedAt,
+  }
 }
 
 export function addAgentTurn(stats: SessionStats, durationMs: number): SessionStats {

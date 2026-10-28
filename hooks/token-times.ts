@@ -9,20 +9,23 @@ import type { StreamTiming } from './stats'
 // 思考的 token 也算；速度只算首 token 到末 token 之间，不含排队与预填充。
 //
 // 思考内容不显示时（Opus 5.5 等的默认）收不到思考的 token，output_tokens 却含着
-// 它们。实测（2026-10-27）思考块在思考开始时就打开，思考期间陆续来空的 thinking 块，
-// 思考结束时关闭：所以首 token 取首个内容块之前最后一个 engine 块（块的开始）的
-// 到达时刻，思考的时长与思考的 token 同在计时窗口里。若以首个可见 token 计起，
-// 窗口漏掉思考的时长，速度会虚高好几倍（出现过 900 多 tok/s）。
-// 末 token 取最后一个内容块：其后的 stop 块要再等零点几秒，那段不是生成。
+// 它们，首 token 的时刻只能从块的到达推断。实测（2026-10-28，31 次请求）：响应的
+// 第一个块总是 engine 块（响应开始），思考块的开始有时紧随其后，有时晚 0.2 到
+// 1 秒，这段时间模型已经在思考。以思考块的开始计起，窗口漏掉这一段，短请求的
+// 速度虚高：174 token 的请求算成 244 tok/s，以响应开始计起是 143 tok/s；长请求
+// 两种算法只差几个百分点。所以首 token 取响应第一个块的到达时刻。
+// 末 token 取最后一个内容块：其后的 stop 块要再等 0.1 到 1.2 秒，这段与输出多少
+// 无关，不是生成。
+// 也有整段内容在响应开始后 20 毫秒内一起到达的（123 token，算出来 5810 tok/s），
+// 这类窗口过短的请求由 stats.ts 的 MIN_SPEED_WINDOW_MS 排除在速度之外。
 
 /** 生成内容的块：模型产出的 token 在这几种块里到达。 */
 const CONTENT_KINDS: ReadonlySet<TurnStepChunk['kind']> = new Set([
   'thinking', 'text', 'tool', 'input',
 ])
 
-/** 首 token 与末 token 的到达时刻，以及首 token 之前最后一个 engine 块的。 */
+/** 响应第一个块（首 token）与最后一个内容块（末 token）的到达时刻。 */
 export type TokenTimes = {
-  lastEngineAt?: number
   firstAt?: number
   lastAt?: number
 }
@@ -33,19 +36,12 @@ export function markTokenTime(
   kind: TurnStepChunk['kind'],
   now: number,
 ): TokenTimes {
-  const hasFirstToken = times.firstAt !== undefined
-  if (kind === 'engine' && !hasFirstToken) {
-    return { ...times, lastEngineAt: now }
-  }
+  const firstAt = times.firstAt ?? now
   if (!CONTENT_KINDS.has(kind)) {
-    return times
+    return { ...times, firstAt }
   }
 
-  return {
-    ...times,
-    firstAt: hasFirstToken ? times.firstAt : (times.lastEngineAt ?? now),
-    lastAt: now,
-  }
+  return { firstAt, lastAt: now }
 }
 
 /** 这次请求的计时；没收到生成内容、或没有输出时为 null，不计时。 */

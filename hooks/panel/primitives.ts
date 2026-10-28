@@ -34,6 +34,40 @@ export function clampRatio(ratio: number): number {
   return Math.min(1, Math.max(0, ratio))
 }
 
+// 估算文字宽度用的字宽，单位是字号（em）：汉字占满一格，数字与拉丁字母约六成，
+// 标点与空格约三成。只用来防止长数值溢出所在的格子，不求精确。
+const WIDE_CHAR_EM = 1
+const NARROW_CHAR_EM = 0.6
+const PUNCTUATION_EM = 0.3
+const PUNCTUATION = new Set(['.', ',', ':', ' ', '·', '/'])
+
+/** 文字的估算宽度，单位 em。 */
+export function textEm(text: string): number {
+  let em = 0
+  for (const char of text) {
+    if (PUNCTUATION.has(char)) {
+      em += PUNCTUATION_EM
+    } else {
+      em += (char.codePointAt(0) ?? 0) > 0x2e80 ? WIDE_CHAR_EM : NARROW_CHAR_EM
+    }
+  }
+
+  return em
+}
+
+// 缩小字号的下限：再小就看不清了，宁可略微出格。
+const MIN_FONT_SIZE = 6
+
+/** 放得进 maxWidth 的字号：放得下用 baseSize，放不下按比例缩小，最小 MIN_FONT_SIZE。 */
+export function fitFontSize(text: string, maxWidth: number, baseSize: number): number {
+  const em = textEm(text)
+  if (em === 0 || em * baseSize <= maxWidth) {
+    return baseSize
+  }
+
+  return Math.max(MIN_FONT_SIZE, Math.floor((maxWidth / em) * 10) / 10)
+}
+
 /** 一段文字。anchor 为 end 时 x 是右边缘。 */
 export function caption(
   x: number,
@@ -49,16 +83,24 @@ export function caption(
   )
 }
 
-/** "标签 值"：标签暗色、值亮色（或提醒色），同一行。 */
+/**
+ * "标签 值"：标签暗色、值亮色（或提醒色），同一行。给了 maxWidth 时，整行放不下
+ * 就缩小字号。
+ */
 export function labelValue(
-  x: number,
-  y: number,
+  at: { x: number; y: number; maxWidth?: number },
   label: string,
   value: string,
   valueColor: string = COLORS.text,
 ): string {
+  const { x, y, maxWidth } = at
+  const size =
+    maxWidth === undefined
+      ? LABEL_SIZE
+      : fitFontSize(label + value, maxWidth - LABEL_VALUE_GAP, LABEL_SIZE)
+
   return (
-    `<text x="${fixed(x)}" y="${fixed(y)}" font-size="${LABEL_SIZE}">` +
+    `<text x="${fixed(x)}" y="${fixed(y)}" font-size="${size}">` +
     `<tspan fill="${COLORS.dim}">${escapeXml(label)}</tspan>` +
     `<tspan dx="${LABEL_VALUE_GAP}" fill="${valueColor}">${escapeXml(value)}</tspan>` +
     `</text>`

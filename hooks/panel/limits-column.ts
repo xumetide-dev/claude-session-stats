@@ -1,5 +1,5 @@
 import type { EngineReadings, RateLimitReading } from '../../types'
-import { NO_READING, limitTone, resetText } from '../format'
+import { NO_READING, currentLimits, isIdleLimit, limitTone, resetText } from '../format'
 import type { Segment } from '../format'
 import { CARD_PADDING, hLine } from './cards'
 import { lineIcon } from './icons'
@@ -24,7 +24,7 @@ const SEVEN_DAY_MS = 7 * 24 * HOUR_MS
 type LimitWindow = {
   icon: LineIconName
   label: string
-  limit: RateLimitReading | null
+  limit: RateLimitReading
   windowMs: number
   segments: number
 }
@@ -37,8 +37,10 @@ type LimitWindow = {
  */
 export function limitsCard(card: Area, readings: EngineReadings): string {
   const x = card.x + CARD_PADDING
-  const { fiveHour, sevenDay, now } = readings
-  if (fiveHour === null && sevenDay === null) {
+  const { now } = readings
+  // 过了重置时刻的、缺的窗口已按"未开始计时"补齐；两个都是 null 说明没有限额。
+  const { fiveHour, sevenDay } = currentLimits(readings)
+  if (fiveHour === null || sevenDay === null) {
     return (
       caption(x, card.y + 22, '限额', { size: 12, color: COLORS.text }) +
       caption(x, card.y + 42, '无限额读数', { size: 10.5 })
@@ -74,14 +76,10 @@ function limitBlock(
   const x = column.x + ICON_COLUMN
   const w = column.w - ICON_COLUMN
   const y = top + 16
-  if (limit === null) {
-    return (
-      lineIcon(icon, column.x + 7, y - 4, 15, COLORS.dim) +
-      labelValue(x, y, label, '无读数', COLORS.dim)
-    )
-  }
-
-  const elapsed = windowElapsedRatio(limit, now, windowMs)
+  // 未开始计时的窗口：时间一格都没走，倒计时处写明。
+  const isIdle = isIdleLimit(limit)
+  const elapsed = isIdle ? 0 : windowElapsedRatio(limit, now, windowMs)
+  const resetLine = isIdle ? '未开始计时' : resetText(limit, now) ?? ''
   const tone = paceTone(limit.percentUsed, elapsed)
   const bar = { x: x + ROW_LABEL_WIDTH, w: w - ROW_LABEL_WIDTH, h: BAR_HEIGHT }
   const quotaBar = { ...bar, y: y + 9 }
@@ -94,12 +92,12 @@ function limitBlock(
 
   return (
     lineIcon(icon, column.x + 7, y - 4, 15, graphicColor(tone)) +
-    labelValue(x, y, label, `${limit.percentUsed}%`, toneColor(tone)) +
+    labelValue({ x, y }, label, `${limit.percentUsed}%`, toneColor(tone)) +
     caption(x, rowBaseline(quotaBar), '额度', { size: 10 }) +
     gaugeBar(quotaBar, limit.percentUsed / 100, graphicColor(tone)) +
     caption(x, rowBaseline(timeBar), '时间', { size: 10 }) +
     timeGraphic +
-    caption(x, y + 42, resetText(limit, now) ?? '', { size: 10 })
+    caption(x, y + 42, resetLine, { size: 10 })
   )
 }
 

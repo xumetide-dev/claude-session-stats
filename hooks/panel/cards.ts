@@ -1,5 +1,5 @@
 import { COLORS } from './palette'
-import { escapeXml, fixed } from './primitives'
+import { escapeXml, fitFontSize, fixed, textEm } from './primitives'
 import type { Area } from './primitives'
 
 // 卡片式版面的公用部件：卡片、卡片里的小方块、状态标记、大号读数、轮播页码。
@@ -36,23 +36,31 @@ export function pill(right: number, top: number, text: string, color: string): s
   )
 }
 
-/** 大号读数：数值大字，单位小字紧跟其后，同一条基线。 */
+const BIG_NUMBER_SIZE = 22
+const UNIT_SIZE = 10
+const UNIT_GAP = 3
+
+/**
+ * 大号读数：数值大字，单位小字紧跟其后，同一条基线。数值太长、放不进 maxWidth 时
+ * 把数值的字号缩小（如速度到了四位数）。
+ */
 export function bigNumber(
-  x: number,
-  y: number,
-  value: string,
-  unit: string,
+  at: { x: number; y: number; maxWidth: number },
+  reading: { value: string; unit: string },
   color: string,
 ): string {
+  const { value, unit } = reading
+  const unitWidth = unit === '' ? 0 : UNIT_GAP + textEm(unit) * UNIT_SIZE
+  const size = fitFontSize(value, at.maxWidth - unitWidth, BIG_NUMBER_SIZE)
   const unitMark =
     unit === ''
       ? ''
-      : `<tspan dx="3" font-size="10" font-weight="400" fill="${COLORS.dim}">` +
-        `${escapeXml(unit)}</tspan>`
+      : `<tspan dx="${UNIT_GAP}" font-size="${UNIT_SIZE}" font-weight="400" ` +
+        `fill="${COLORS.dim}">${escapeXml(unit)}</tspan>`
 
   return (
-    `<text x="${fixed(x)}" y="${fixed(y)}" font-size="22" font-weight="600" ` +
-    `fill="${color}">${escapeXml(value)}${unitMark}</text>`
+    `<text x="${fixed(at.x)}" y="${fixed(at.y)}" font-size="${size}" ` +
+    `font-weight="600" fill="${color}">${escapeXml(value)}${unitMark}</text>`
   )
 }
 

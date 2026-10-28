@@ -27,6 +27,7 @@ import { zoneGauge } from '../hooks/panel/zone-gauge'
 import { EMPTY_READINGS, toContextGrid } from '../hooks/readings'
 import {
   EMPTY_STATS,
+  TIMING_VERSION,
   addStreamTiming,
   backfillStats,
   recordCost,
@@ -63,8 +64,8 @@ describe('格式化', () => {
     }
     const rows = toRows(EMPTY_STATS, readings)
     expect(rows.map(row => row.map(segment => segment.label))).toEqual([
-      ['压缩', '会话', '总缓存', '速度', 'TTFT'],
-      ['耗时', '工具'],
+      ['压缩', '会话', '命中率', '速度', 'TTFT'],
+      ['时长', '耗时', '工具'],
       ['5小时', '7天'],
       ['子 agent 合计'],
     ])
@@ -78,34 +79,39 @@ describe('格式化', () => {
 
   test('没有限额读数时整行不出现', async () => {
     const rows = toRows(EMPTY_STATS, { ...EMPTY_READINGS, now: START })
-    expect(rows.map(row => row[0]?.label)).toEqual(['压缩', '耗时', '子 agent 合计'])
+    expect(rows.map(row => row[0]?.label)).toEqual(['压缩', '时长', '子 agent 合计'])
   })
 })
 
 describe('累加规则', () => {
   test('速度是首 token 之后的总输出除以首末 token 间的总时长，不是各次速度的平均', async () => {
-    // 两次请求：11 token / 0.05 秒（首 token 之后 10 个，200 tok/s）与
+    // 两次请求：201 token / 1 秒（首 token 之后 200 个，200 tok/s）与
     // 301 token / 3 秒（100 tok/s）。
     const first = addStreamTiming(EMPTY_STATS, {
-      outputTokens: 11, ttftMs: 40, decodeMs: 50,
+      outputTokens: 201, ttftMs: 40, decodeMs: 1_000,
     })
     const both = addStreamTiming(first, {
       outputTokens: 301, ttftMs: 100, decodeMs: 3_000,
     })
-    // 310 / 3.05 秒 ≈ 101.6，而两次速度的平均是 150。
-    expect(outputSpeed(both)?.toFixed(1)).toBe('101.6')
+    // 500 / 4 秒 = 125，而两次速度的平均是 150。
+    expect(outputSpeed(both)).toBe(125)
   })
 
-  test('首末 token 相隔不足 0.5 秒的请求计入总速度；小图里只有 TTFT，没有速度柱子', async () => {
+  test('首末 token 相隔不足 1 秒的请求不计速度，总速度与柱子都没有它；TTFT 照记', async () => {
+    // 0.95 秒到 190 个 token：一批 token 一起到达时的离群值（200 tok/s）。
     const short = addStreamTiming(EMPTY_STATS, {
-      outputTokens: 6, ttftMs: 100, decodeMs: 150,
+      outputTokens: 191, ttftMs: 100, decodeMs: 950,
     })
-    expect(short.decodedTokens).toBe(5)
+    expect(short.decodedTokens).toBe(0)
+    expect(short.decodeMs).toBe(0)
+    expect(outputSpeed(short)).toBeNull()
     expect(short.recentRequests).toEqual([{ speed: null, ttftMs: 100 }])
     const long = addStreamTiming(short, {
       outputTokens: 301, ttftMs: 800, decodeMs: 3_000,
     })
     expect(long.recentRequests[1]).toEqual({ speed: 100, ttftMs: 800 })
+    expect(outputSpeed(long)).toBe(100)
+    expect(long.firstTokenCount).toBe(2)
   })
 
   test('首末 token 同时到达的请求只计 TTFT，不计入速度', async () => {
@@ -137,6 +143,25 @@ describe('累加规则', () => {
     for (const key of ['timedOutputTokens', 'generationMs', 'firstChunkWaitMs']) {
       expect(key in migrated).toBe(false)
     }
+  })
+
+  test('计时口径版本不同（或还没有版本号）的统计重载后清掉计时，其余照留', async () => {
+    const stale = {
+      ...EMPTY_STATS, compactions: 2, decodedTokens: 500, decodeMs: 1_000,
+      firstTokenWaitMs: 900, firstTokenCount: 3,
+      recentRequests: [{ speed: 312, ttftMs: 300 }],
+    }
+    const { timingVersion, ...unversioned } = stale
+    for (const stored of [{ ...stale, timingVersion: 1 }, unversioned]) {
+      const migrated = backfillStats(stored as SessionStats)
+      expect(migrated.timingVersion).toBe(TIMING_VERSION)
+      expect(migrated.recentRequests).toEqual([])
+      expect(migrated.decodedTokens).toBe(0)
+      expect(migrated.firstTokenCount).toBe(0)
+      expect(migrated.compactions).toBe(2)
+    }
+    // 现行版本的计时原样保留。
+    expect(backfillStats(stale).decodedTokens).toBe(500)
   })
 
   test('更早的版本（只记速度、从首块计时）同样整条清掉', async () => {

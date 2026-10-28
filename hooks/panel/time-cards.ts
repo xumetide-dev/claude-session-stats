@@ -5,12 +5,13 @@ import {
   formatShortDuration,
   liveWorkMs,
   outputSpeed,
+  sessionDurationMs,
 } from '../format'
 import { CARD_PADDING, bigNumber, pill, tileFrame, vLine } from './cards'
 import { requestChart } from './charts'
 import { boltIcon, lineIcon } from './icons'
 import { COLORS } from './palette'
-import { caption, escapeXml, fixed } from './primitives'
+import { caption, escapeXml, fitFontSize, fixed } from './primitives'
 import type { Area } from './primitives'
 
 // 桌面端面板的两张时间卡片：运行时长（时、分、秒三个方块）；处理速度与 TTFT
@@ -32,10 +33,12 @@ const TTFT_DECIMAL_LIMIT_MS = 10_000
 const TIME_TILE_TOP = 32
 const TIME_TILE_HEIGHT = 66
 const TIME_TILE_GAP = 8
+const TIME_TILE_VALUE_SIZE = 22
 
 /**
- * 运行时长：会话开始至今的时、分、秒，秒数方块用强调色；右上角标记主对话此刻
- * 在不在跑一轮。底部是耗时（主对话各轮之和）与它占时长的比例。
+ * 运行时长：会话开始到主对话最后一轮结束的时、分、秒（正在跑一轮时算到现在，
+ * 空闲时停住），秒数方块用强调色；右上角标记主对话此刻在不在跑一轮。底部是耗时
+ * （主对话各轮之和）与它占时长的比例。还不知道最后一轮何时结束时写占位符。
  */
 export function runtimeCard(
   card: Area,
@@ -43,11 +46,15 @@ export function runtimeCard(
 ): string {
   const x = card.x + CARD_PADDING
   const right = card.x + card.w - CARD_PADDING
-  const { now, sessionStartedAt } = readings
-  const sessionMs = sessionStartedAt === null ? 0 : now - sessionStartedAt
-  const workMs = liveWorkMs(stats, now)
-  const workRatio = sessionMs > 0 ? Math.min(1, workMs / sessionMs) : 0
-  const badge = isWorking ? pill(right, card.y + 9, 'LIVE', COLORS.accent)
+  const sessionMs = sessionDurationMs(stats, readings)
+  const workMs = liveWorkMs(stats, readings.now)
+  // 时长为 0（刚开始）时比例没有意义，与不知道时长一样写占位符。
+  const workPercent =
+    sessionMs === null || sessionMs === 0
+      ? NO_READING
+      : `${Math.round(Math.min(1, workMs / sessionMs) * 100)}%`
+  const badge = isWorking
+    ? pill(right, card.y + 9, 'LIVE', COLORS.accent)
     : pill(right, card.y + 9, '空闲', COLORS.dim)
 
   return (
@@ -58,21 +65,25 @@ export function runtimeCard(
     `<text x="${fixed(x)}" y="${fixed(card.y + card.h - 12)}" font-size="11" ` +
     `fill="${COLORS.dim}">耗时<tspan dx="4" fill="${COLORS.accent}">` +
     `${escapeXml(formatShortDuration(workMs))}</tspan><tspan dx="4">· 占</tspan>` +
-    `<tspan dx="4" fill="${COLORS.accent}">${Math.round(workRatio * 100)}%` +
-    `</tspan></text>`
+    `<tspan dx="4" fill="${COLORS.accent}">${workPercent}</tspan></text>`
   )
 }
 
-/** 时、分、秒三个方块，方块之间一个小圆点。 */
-function clockTiles(row: Area, sessionMs: number): string {
-  const totalSeconds = Math.floor(Math.max(0, sessionMs) / MS_PER_SECOND)
+/**
+ * 时、分、秒三个方块，方块之间一个小圆点。时长未知时三格都写 --；小时数超过两位
+ * 时照写，放不下就缩小字号。
+ */
+function clockTiles(row: Area, sessionMs: number | null): string {
+  const totalSeconds = Math.floor(Math.max(0, sessionMs ?? 0) / MS_PER_SECOND)
+  const digits = (value: number) =>
+    sessionMs === null ? '--' : String(value).padStart(2, '0')
   const parts = [
-    { value: Math.floor(totalSeconds / SECONDS_PER_HOUR), label: '小时' },
+    { value: digits(Math.floor(totalSeconds / SECONDS_PER_HOUR)), label: '小时' },
     {
-      value: Math.floor((totalSeconds % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE),
+      value: digits(Math.floor((totalSeconds % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE)),
       label: '分钟',
     },
-    { value: totalSeconds % SECONDS_PER_MINUTE, label: '秒' },
+    { value: digits(totalSeconds % SECONDS_PER_MINUTE), label: '秒' },
   ]
   const width = (row.w - (parts.length - 1) * TIME_TILE_GAP) / parts.length
   const top = row.y + TIME_TILE_TOP
@@ -95,9 +106,9 @@ function clockTiles(row: Area, sessionMs: number): string {
       return (
         separator +
         tileFrame(tile, isSeconds ? 'accent' : 'plain') +
-        `<text x="${fixed(center)}" y="${fixed(top + 34)}" font-size="22" ` +
-        `font-weight="600" fill="${valueColor}" text-anchor="middle">` +
-        `${String(value).padStart(2, '0')}</text>` +
+        `<text x="${fixed(center)}" y="${fixed(top + 34)}" ` +
+        `font-size="${fitFontSize(value, width - 6, TIME_TILE_VALUE_SIZE)}" ` +
+        `font-weight="600" fill="${valueColor}" text-anchor="middle">${value}</text>` +
         caption(center, top + 54, label, {
           size: 10.5, anchor: 'middle', color: isSeconds ? COLORS.accent : COLORS.dim,
         })
@@ -117,6 +128,8 @@ export function speedCard(card: Area, { stats }: TimeInput): string {
   const speed = outputSpeed(stats)
   const ttft = averageTtft(stats)
   const valueY = card.y + 50
+  const speedAt = { x, y: valueY, maxWidth: middle - 6 - x }
+  const ttftAt = { x: middle + 10, y: valueY, maxWidth: right - middle - 10 }
 
   return (
     boltIcon(x + 6, card.y + 17, 14, COLORS.accent) +
@@ -126,8 +139,16 @@ export function speedCard(card: Area, { stats }: TimeInput): string {
     caption(middle + 26, card.y + HEADER_BASELINE, 'TTFT', {
       ...TITLE_STYLE, color: COLORS.ttft,
     }) +
-    bigNumber(x, valueY, speedValue(speed), speed === null ? '' : 'tok/s', COLORS.accent) +
-    bigNumber(middle + 10, valueY, ttftValue(ttft), ttft === null ? '' : 's', COLORS.ttft) +
+    bigNumber(
+      speedAt,
+      { value: speedValue(speed), unit: speed === null ? '' : 'tok/s' },
+      COLORS.accent,
+    ) +
+    bigNumber(
+      ttftAt,
+      { value: ttftValue(ttft), unit: ttft === null ? '' : 's' },
+      COLORS.ttft,
+    ) +
     requestChart(
       { x, y: card.y + 60, w: right - x, h: card.h - 68 },
       stats.recentRequests,

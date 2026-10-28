@@ -53,6 +53,8 @@ test('token、缓存、子 agent 与工具累加后画进状态栏', async ($, o
   }))
   await $.tool.call({ tool: 'Bash', command: 'ls' })
   await $.tool.call({ tool: 'Bash', command: 'pwd', agentId: 'a1' })
+  // 主对话这一轮在会话开始 3 秒后结束；之后空闲的 1 秒不计入时长。
+  await clock.advance(3000)
   await $.turn.complete({
     turnId: 'main', answer: '', durationMs: 8_743_000, isAborted: false,
     reason: 'answer',
@@ -67,9 +69,9 @@ test('token、缓存、子 agent 与工具累加后画进状态栏', async ($, o
     const text = await bandText($, surface)
     expect(text).toContain('会话 6325万')
     // 61,000,000 / 62,254,000 = 97.99%
-    expect(text).toContain('总缓存 98.0%')
+    expect(text).toContain('命中率 98.0%')
     expect(text).toContain('花费 $12.30')
-    expect(text).toContain('时长 1秒')
+    expect(text).toContain('时长 3秒')
     expect(text).toContain('耗时 2时25分43秒')
     expect(text).toContain('Prompt 7')
     expect(text).toContain('5小时 23.5% · 1时59分后重置')
@@ -100,14 +102,17 @@ test('桌面端画 Svg 面板，数据进到对应的栏里；两处轮播每 20
   expect(source).toContain('>合计耗时<')
   // 第二张卡片第一页是上下文构成点阵，第二页的会话与缓存这时不画。
   expect(source).toContain('上下文构成')
-  expect(source).not.toContain('总缓存')
+  expect(source).not.toContain('命中率')
   // prompt 与工具次数只在第一张卡片的主对话页。
   expect(source).not.toContain('Prompt')
   // 5 小时到 85%、没有重置时刻：比不了时间，按 80% 的规则用提醒色，时间条写占位符。
   expect(source).toContain(`fill="${COLORS.warning}"`)
   expect(source).toContain('>额度<')
   expect(source).toContain('>时间<')
-  expect(source).toContain('>无读数<')
+  // 引擎没给 7 天窗口的读数：照样画出来，用量 0%，窗口还没开始计时。
+  expect(source).toContain('>7天<')
+  expect(source).toContain('>0%<')
+  expect(source).toContain('>未开始计时<')
   // 花费记了两个点（$1 与 $1.5），画出阶梯折线。
   expect(source).toContain('url(#costFill)')
   expect(source).toContain('$1.50')
@@ -122,7 +127,7 @@ test('桌面端画 Svg 面板，数据进到对应的栏里；两处轮播每 20
   expect(second).not.toContain('子 agent')
   expect(second).toContain('>上下文<')
   expect(second).toContain('>1.2万 / 20万<')
-  expect(second).toContain('总缓存')
+  expect(second).toContain('命中率')
   expect(second).toContain('>90%<')
   expect(second).not.toContain('上下文构成')
 })
@@ -213,8 +218,8 @@ test('只计主对话真正生效的压缩', async ($, on) => {
 
 // 仿照实测的隐藏思考流（思考内容不显示）：0.5 秒来第一个空的 thinking 块，思考期间
 // 陆续再来，2.5 秒思考结束、开始出正文，3 秒到末 token，再过 0.6 秒才到 stop。
-// 每项是距上一块的毫秒数与块。块的开始等 engine 块测试里造不出来，它们的处理见
-// token-times.test.ts。
+// 每项是距上一块的毫秒数与块。响应开始等 engine 块测试里造不出来，这里第一个块
+// 就是思考块；engine 块的处理见 token-times.test.ts。
 const HIDDEN_THINKING_STREAM: [number, TurnStepChunk][] = [
   [500, { kind: 'thinking', index: 0, text: '' }],
   [1_000, { kind: 'thinking', index: 0, text: '' }],
@@ -226,7 +231,7 @@ const HIDDEN_THINKING_STREAM: [number, TurnStepChunk][] = [
 
 test('速度与 TTFT 只计主对话，速度柱子只来自主对话', async ($, on) => {
   const { clock } = answerEngine(on)
-  // 主对话输出 201 个 token（含思考）。TTFT 取首个思考块的 0.5 秒；速度是首 token
+  // 主对话输出 201 个 token（含思考）。TTFT 取第一个块的 0.5 秒；速度是首 token
   // 之后的 200 个除以首末 token 间的 2.5 秒 = 80，stop 之前那 0.6 秒不算。
   // 子 agent 那次输出更多：若被误计入，速度会变成 (200 + 999) / 5 秒 ≈ 240。
   const mainUsage = { ...NO_USAGE, output_tokens: 201 }

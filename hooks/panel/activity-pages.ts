@@ -4,7 +4,7 @@ import { tileFrame } from './cards'
 import { avatar, lineIcon } from './icons'
 import type { AvatarKind, LineIconName } from './icons'
 import { COLORS } from './palette'
-import { caption, escapeXml, fixed } from './primitives'
+import { caption, escapeXml, fitFontSize, fixed } from './primitives'
 import type { Area } from './primitives'
 
 // 桌面端面板第一张卡片的两页：子 agent 与主对话。两页版式相同：上面一条头部
@@ -25,6 +25,7 @@ const HEADER_INSET = 6
 const HEADER_HEIGHT = 52
 const AVATAR_SIZE = 34
 const TILE_GAP = 6
+const TILE_VALUE_SIZE = 13
 
 /**
  * 第一页：子 agent。头部是此刻运行中的个数；小方块是会话至今所有子 agent 的
@@ -122,7 +123,8 @@ function tiles(card: Area, items: TileItem[]): string {
       return (
         tileFrame(tile) +
         lineIcon(item.icon, tile.x + 13, tile.y + 13, 13, COLORS.icon) +
-        `<text x="${fixed(center)}" y="${fixed(tile.y + 37)}" font-size="13" ` +
+        `<text x="${fixed(center)}" y="${fixed(tile.y + 37)}" ` +
+        `font-size="${fitFontSize(item.value, width - 8, TILE_VALUE_SIZE)}" ` +
         `font-weight="600" fill="${COLORS.text}" text-anchor="middle">` +
         `${escapeXml(item.value)}</text>` +
         caption(center, tile.y + height - 9, item.label, {

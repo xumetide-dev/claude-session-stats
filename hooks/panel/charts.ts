@@ -147,10 +147,15 @@ function smoothPath(
   return `M${fixed(first.x)} ${fixed(first.y)}${segments.join('')}`
 }
 
+/**
+ * 一组值里的最大值，作纵轴的满格。没有值、或最大值不是正数（全是 0）时为 null：
+ * 拿 0 当满格会除以 0。
+ */
 function maxOf(values: readonly (number | null)[]): number | null {
   const present = values.filter((value): value is number => value !== null)
+  const max = present.length === 0 ? 0 : Math.max(...present)
 
-  return present.length === 0 ? null : Math.max(...present)
+  return max > 0 ? max : null
 }
 
 /**

@@ -163,9 +163,10 @@ function registerTurnCounters(on: On): void {
   on('turn.complete', async ($, e, next) => {
     const { durationMs } = e
     const isMainLoop = e.agentId === undefined
+    const endedAt = await $.clock.now()
     await update($, stats, current =>
       isMainLoop
-        ? finishMainTurn(current, durationMs)
+        ? finishMainTurn(current, { durationMs, endedAt })
         : addAgentTurn(current, durationMs),
     )
 
