@@ -37,7 +37,8 @@ const COLLAPSED_STORE_KEY = 'isCollapsed'
 /**
  * 输入框上方的状态栏，读到的数据任一变化即重画。桌面端画图形面板（Svg），
  * 其余端画几行小字；面板的 alt 就是这几行字，读屏与不能显示图片时用。
- * 桌面端面板上方有"收起"按钮，收起后只剩一行摘要（精度更低、美制单位）与"展开"按钮；
+ * 桌面端面板上方有"收起"按钮，收起后只剩一行摘要（精度更低、美制单位）与"展开"按钮，
+ * 摘要放不下时在行尾截断，不换行；
  * 终端的状态栏用引擎自带的 [-]（ctrl+x ctrl+a）收起。
  */
 export function registerBand(on: On): void {
@@ -61,8 +62,10 @@ export function registerBand(on: On): void {
     if (await read($, collapsed)) {
       return (
         <Box flexDirection="row" columnGap={1}>
-          <Button key="expand" plain dimColor label="展开统计" onPress={toggle} />
-          {drawRows(elements, [toSummaryRow(currentStats, currentReadings)])}
+          <Button key="expand" plain dimColor label="展开" onPress={toggle} />
+          <Box flexShrink={1} minWidth={0}>
+            {drawSummary(elements, toSummaryRow(currentStats, currentReadings))}
+          </Box>
         </Box>
       )
     }
@@ -132,6 +135,25 @@ function drawRows(elements: BandElements, rows: Row[]) {
         </Box>
       ))}
     </Box>
+  )
+}
+
+/**
+ * 收起后的一行摘要：整行是一个 Text，各段是其中的片段，标签与数值、段与段之间只隔
+ * 一个空格，比 drawRows 每处一个 columnGap 窄得多。空格在片段中间，不在整个 Text
+ * 的两端，不会被吞掉。窗口仍放不下时在行尾截断并加省略号，不换成两行。
+ */
+function drawSummary({ Text }: BandElements, row: Row) {
+  const runs = row.flatMap((segment, index) => [
+    ...(index === 0 ? [] : [<Text dimColor> │ </Text>]),
+    <Text dimColor>{`${segment.label} `}</Text>,
+    <Text tabular>{segment.value}</Text>,
+  ])
+
+  return (
+    <Text size="footnote" wrap="truncate-end">
+      {runs}
+    </Text>
   )
 }
 

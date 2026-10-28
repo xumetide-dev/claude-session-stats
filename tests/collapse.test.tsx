@@ -26,6 +26,21 @@ test('桌面端面板按"收起"变成一行摘要，按"展开"恢复面板', a
   await ui.unmount()
 })
 
+test('收起后的摘要是一个 Text：段间只隔空格，放不下时行尾截断，不换行', async ($, on) => {
+  const { engine } = answerEngine(on, { isCollapsed: true })
+  engine.costUsd = 52.214
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+
+  const texts = await ui.findAll({ type: 'Text' })
+  const summary = texts.find(text => text.props.wrap === 'truncate-end')
+  expect(summary?.props.size).toBe('footnote')
+  expect(summary?.text).toBe(
+    '压缩 0 │ 会话 0 │ 总缓存 — │ 速度 — │ TTFT — │ 花费 $52.21',
+  )
+  await ui.unmount()
+})
+
 test('收起状态存进 $.store；上次收起的，新会话一开始就是一行摘要', async ($, on) => {
   const { stored } = answerEngine(on, { isCollapsed: true })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
