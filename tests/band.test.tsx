@@ -106,7 +106,8 @@ test('桌面端画 Svg 面板，数据进到对应的栏里；两处轮播每 20
   // prompt 与工具次数只在第一张卡片的主对话页。
   expect(source).not.toContain('Prompt')
   // 5 小时到 85%、没有重置时刻：比不了时间，按 80% 的规则用提醒色，时间条写占位符。
-  expect(source).toContain(`fill="${COLORS.warning}"`)
+  // 断言读数本身的颜色：花费折线的末端点也用提醒色，只查 fill 证明不了限额。
+  expect(source).toContain(`fill="${COLORS.warning}">85%<`)
   expect(source).toContain('>额度<')
   expect(source).toContain('>时间<')
   // 引擎没给 7 天窗口的读数：照样画出来，用量 0%，窗口还没开始计时。
