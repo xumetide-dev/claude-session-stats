@@ -5,9 +5,29 @@ import { EMPTY_READINGS } from '../hooks/readings'
 import { EMPTY_STATS } from '../hooks/stats'
 import { BAND, answerEngine } from './fixtures'
 
+const PAD = '\u2800'.repeat(6)
+
 // 桌面端面板的收起与展开：按钮切换，状态另存一份在 $.store，新会话沿用。
 
-test('桌面端面板按"收起"变成一行摘要，按"展开"恢复面板', async ($, on) => {
+test('面板顶部正中是扁的尖括号，不写文字；按钮名称仍是收起、展开面板', async ($, on) => {
+  answerEngine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+
+  const collapse = await ui.find({ key: 'collapse' })
+  expect(collapse?.props.label).toBe('收起面板')
+  // 尖括号两侧垫着盲文空白，可点范围比线条宽。
+  expect(collapse?.text).toBe(`${PAD}\uFE40${PAD}`)
+  await ui.press({ key: 'collapse' })
+  const expand = await ui.find({ key: 'expand' })
+  expect(expand?.props.label).toBe('展开面板')
+  expect(expand?.text).toBe(`${PAD}\uFE3F${PAD}`)
+  const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text).join(' ')
+  expect(texts).not.toContain('展开')
+  await ui.unmount()
+})
+
+test('桌面端面板按收起变成一行摘要，按展开恢复面板', async ($, on) => {
   answerEngine(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
@@ -16,7 +36,7 @@ test('桌面端面板按"收起"变成一行摘要，按"展开"恢复面板', a
 
   expect(await ui.find({ type: 'Svg' })).toBeDefined()
   await ui.press({ key: 'collapse' })
-  // 收起后没有面板，只剩第一行摘要（压缩、会话、缓存……）与展开按钮。
+  // 收起后没有面板，只剩第一行摘要（压缩、会话、命中率……）与展开的尖括号。
   expect(await ui.find({ type: 'Svg' })).toBeUndefined()
   expect(await textsOf()).toContain('会话')
   expect(await textsOf()).not.toContain('时长')

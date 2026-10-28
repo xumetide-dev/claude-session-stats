@@ -11,7 +11,8 @@ import { requestChart } from '../hooks/panel/charts'
 import { buildPanelSvg } from '../hooks/panel/panel'
 import { fitFontSize, textEm } from '../hooks/panel/primitives'
 import { EMPTY_READINGS } from '../hooks/readings'
-import { EMPTY_STATS } from '../hooks/stats'
+import { EMPTY_STATS, assumeTurnEndedBy } from '../hooks/stats'
+import type { EngineReadings, SessionStats } from '../types'
 import { HOUR_MS, START } from './fixtures'
 
 // 空值、0 值与极端值：读数缺失或为 0 时组件照样画出来，算式不除以 0，大数不出格。
@@ -35,11 +36,26 @@ describe('会话时长', () => {
     expect(sessionDurationMs(stats, readings)).toBe(10 * HOUR_MS)
   })
 
-  test('还没有结束过一轮、或不知道会话开始时间时为 null，终端写占位符', async () => {
-    expect(sessionDurationMs(EMPTY_STATS, readings)).toBeNull()
+  test('还没有过轮次时为 0；不知道会话开始时间时为 null，终端写占位符', async () => {
+    expect(sessionDurationMs(EMPTY_STATS, readings)).toBe(0)
+    const timeRowOf = (stats: SessionStats, at: EngineReadings) =>
+      rowsToText(toRows(stats, at)).split('\n')[1]
+    expect(timeRowOf(EMPTY_STATS, readings)).toStartWith('时长 0秒')
+    const unknownStart = { ...readings, sessionStartedAt: null }
     const ended = { ...EMPTY_STATS, lastTurnEndedAt: START }
-    expect(sessionDurationMs(ended, { ...readings, sessionStartedAt: null })).toBeNull()
-    expect(rowsToText(toRows(EMPTY_STATS, readings)).split('\n')[1]).toStartWith('时长 —')
+    expect(sessionDurationMs(ended, unknownStart)).toBeNull()
+    expect(timeRowOf(ended, unknownStart)).toStartWith('时长 —')
+  })
+
+  test('加载时已有轮次、不知道最后一轮何时结束：按加载时刻补上，已知的不动', async () => {
+    const loadedAt = START + HOUR_MS
+    expect(assumeTurnEndedBy(EMPTY_STATS, loadedAt, 3).lastTurnEndedAt).toBe(loadedAt)
+    const worked = { ...EMPTY_STATS, workMs: 60_000 }
+    expect(assumeTurnEndedBy(worked, loadedAt, null).lastTurnEndedAt).toBe(loadedAt)
+    // 还没有过轮次：不补，时长按 0。
+    expect(assumeTurnEndedBy(EMPTY_STATS, loadedAt, 0).lastTurnEndedAt).toBeNull()
+    const known = { ...EMPTY_STATS, lastTurnEndedAt: START + 1000 }
+    expect(assumeTurnEndedBy(known, loadedAt, 3)).toBe(known)
   })
 
   test('结束时刻早于开始时刻时按 0 计', async () => {

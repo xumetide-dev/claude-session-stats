@@ -17,8 +17,8 @@ export type SessionStats = {
   /** 主对话正在进行的那一轮的开始时间；没有进行中的轮次时为 null。 */
   mainTurnStartedAt: number | null
   /**
-   * 主对话最后一轮的结束时间；mod 加载（或 /clear）以来还没有结束过一轮时为 null。
-   * 会话时长算到这里：空闲时不再往上走。
+   * 主对话最后一轮的结束时间；还没有过轮次时为 null。mod 加载时会话已有轮次、
+   * 却不知道最后一轮何时结束时，取加载时刻。会话时长算到这里：空闲时不再往上走。
    */
   lastTurnEndedAt: number | null
   /** 速度与 TTFT 的计时口径版本；与现行版本不同时，重载后计时的合计与样本清掉。 */

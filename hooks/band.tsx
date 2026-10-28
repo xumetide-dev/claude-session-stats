@@ -34,11 +34,20 @@ const collapsed = atom(
 // $.store，会话开始时读回来，新会话沿用上次的状态。
 const COLLAPSED_STORE_KEY = 'isCollapsed'
 
+// 收起与展开的开关是面板顶部正中一个扁的尖括号，不写文字。面板贴着输入框，
+// 收起时上沿往下落，展开时往上长，所以展开时画向下的 ﹀，收起后画向上的 ︿。
+const COLLAPSE_GLYPH = '\uFE40'
+const EXPAND_GLYPH = '\uFE3F'
+// 尖括号两侧各垫几个盲文空白（U+2800），把按钮的可点范围撑宽，不必点中线条：
+// 按钮整段文字都可点，悬停时整段反显。普通空格在文字两端会被吞掉；盲文空白
+// 不算空白字符，不会。
+const TOGGLE_PADDING = '\u2800'.repeat(6)
+
 /**
  * 输入框上方的状态栏，读到的数据任一变化即重画。桌面端画图形面板（Svg），
  * 其余端画几行小字；面板的 alt 就是这几行字，读屏与不能显示图片时用。
- * 桌面端面板上方有"收起"按钮，收起后只剩一行摘要（精度更低、美制单位）与"展开"按钮，
- * 摘要放不下时在行尾截断，不换行；
+ * 桌面端面板顶部正中有收起的尖括号，收起后只剩一行摘要（精度更低、美制单位），
+ * 顶部正中换成展开的尖括号；摘要放不下时在行尾截断，不换行。
  * 终端的状态栏用引擎自带的 [-]（ctrl+x ctrl+a）收起。
  */
 export function registerBand(on: On): void {
@@ -56,14 +65,14 @@ export function registerBand(on: On): void {
       return drawRows(elements, rows)
     }
 
-    const { Box, Button, Svg } = elements
+    const { Box, Svg } = elements
     const toggle = () => toggleCollapsed($)
     // 收起时不读上下文格子：摘要用不到它，也就不必随它的刷新重画。
     if (await read($, collapsed)) {
       return (
-        <Box flexDirection="row" columnGap={1}>
-          <Button key="expand" plain dimColor label="展开" onPress={toggle} />
-          <Box flexShrink={1} minWidth={0}>
+        <Box flexDirection="column" rowGap={0}>
+          {drawToggle(elements, { isCollapsed: true, onPress: toggle })}
+          <Box minWidth={0}>
             {drawSummary(elements, toSummaryRow(currentStats, currentReadings))}
           </Box>
         </Box>
@@ -78,14 +87,37 @@ export function registerBand(on: On): void {
     })
 
     return (
-      <Box flexDirection="column">
-        <Box flexDirection="row" justifyContent="flex-end">
-          <Button key="collapse" plain dimColor label="收起" onPress={toggle} />
-        </Box>
+      <Box flexDirection="column" rowGap={0}>
+        {drawToggle(elements, { isCollapsed: false, onPress: toggle })}
         <Svg source={source} alt={rowsToText(rows)} />
       </Box>
     )
   })
+}
+
+/**
+ * 顶部正中的开关：最小号字的尖括号，平时暗色，悬停时亮。按钮的名称（读屏念的）
+ * 仍是"收起面板""展开面板"，key 不随尖括号变。
+ */
+function drawToggle(
+  { Box, Button, Text }: Pick<Elements['desktop'], 'Box' | 'Button' | 'Text'>,
+  { isCollapsed, onPress }: { isCollapsed: boolean; onPress: () => void },
+) {
+  const glyph = isCollapsed ? EXPAND_GLYPH : COLLAPSE_GLYPH
+
+  return (
+    <Box flexDirection="row" justifyContent="center">
+      <Button
+        key={isCollapsed ? 'expand' : 'collapse'}
+        label={isCollapsed ? '展开面板' : '收起面板'}
+        plain
+        dimColor
+        onPress={onPress}
+      >
+        <Text size="caption">{`${TOGGLE_PADDING}${glyph}${TOGGLE_PADDING}`}</Text>
+      </Button>
+    </Box>
+  )
 }
 
 /**

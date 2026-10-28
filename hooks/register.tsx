@@ -21,6 +21,7 @@ import {
   addMainToolCall,
   addRequestUsage,
   addStreamTiming,
+  assumeTurnEndedBy,
   backfillStats,
   finishMainTurn,
   recordCost,
@@ -123,14 +124,20 @@ function repeat(
 }
 
 /**
- * 会话开始与每次重载都会到这里：补齐旧版本统计的字段，立即读一次引擎，
- * 读回上次的面板收起状态，再起每秒刷新的定时器（模块重载时引擎会取消旧定时器）。
- * /clear 时清零计数。
+ * 会话开始与每次重载都会到这里：补齐旧版本统计的字段（含不知道的最后一轮结束
+ * 时刻），立即读一次引擎，读回上次的面板收起状态，再起每秒刷新的定时器（模块
+ * 重载时引擎会取消旧定时器）。/clear 时清零计数。
  */
 function registerRefresh(on: On): void {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    await update($, stats, backfillStats)
+    const [loadedAt, promptCount] = await Promise.all([
+      $.clock.now(),
+      $.session.turns(),
+    ])
+    await update($, stats, current =>
+      assumeTurnEndedBy(backfillStats(current), loadedAt, promptCount),
+    )
     await Promise.all([refreshReadings($), refreshGrid($), restoreCollapsed($)])
     repeat($, REFRESH_INTERVAL_MS, '刷新读数', () => refreshReadings($))
     repeat($, GRID_REFRESH_INTERVAL_MS, '刷新上下文格子', () => refreshGrid($))

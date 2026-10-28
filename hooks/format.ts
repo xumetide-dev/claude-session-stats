@@ -99,20 +99,20 @@ export function averageTtft(stats: SessionStats): number | null {
 
 /**
  * 会话时长：从会话开始到主对话最后一轮结束；正在跑一轮时算到现在。会话空闲时
- * 不再往上走。mod 加载（或 /clear）以来还没有结束过一轮、也没有进行中的轮次时，
- * 不知道最后一轮何时结束，为 null；没有会话开始时间时也为 null。
+ * 不再往上走。还没有过轮次时为 0（最后一轮的结束时刻不知道时，mod 加载时已按
+ * 加载时刻补上，见 assumeTurnEndedBy）；不知道会话开始时间时为 null。
  */
 export function sessionDurationMs(
   stats: SessionStats,
   readings: EngineReadings,
 ): number | null {
   const { now, sessionStartedAt } = readings
-  const endedAt = stats.mainTurnStartedAt === null ? stats.lastTurnEndedAt : now
-  if (sessionStartedAt === null || endedAt === null) {
+  if (sessionStartedAt === null) {
     return null
   }
+  const endedAt = stats.mainTurnStartedAt === null ? stats.lastTurnEndedAt : now
 
-  return Math.max(0, endedAt - sessionStartedAt)
+  return endedAt === null ? 0 : Math.max(0, endedAt - sessionStartedAt)
 }
 
 /** 主对话耗时：已结束各轮之和，加上进行中那一轮到现在为止的时长。 */

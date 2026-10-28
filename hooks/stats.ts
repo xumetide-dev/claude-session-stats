@@ -200,6 +200,25 @@ export function finishMainTurn(
   }
 }
 
+/**
+ * mod 加载（会话开始、重载插件、恢复会话）时补上不知道的最后一轮结束时刻：会话
+ * 已经有过轮次、统计里却没有这一项（升级前的统计没有，恢复的会话在别的进程里
+ * 跑过），按加载时刻算，最后一轮至迟在这时已经结束。下一轮结束时换成准确的时刻。
+ * 还没有过轮次、或已经知道时原样返回。
+ */
+export function assumeTurnEndedBy(
+  stats: SessionStats,
+  loadedAt: number,
+  promptCount: number | null,
+): SessionStats {
+  const hasTurns = (promptCount ?? 0) > 0 || stats.workMs > 0
+  if (stats.lastTurnEndedAt !== null || !hasTurns) {
+    return stats
+  }
+
+  return { ...stats, lastTurnEndedAt: loadedAt }
+}
+
 export function addAgentTurn(stats: SessionStats, durationMs: number): SessionStats {
   return { ...stats, agentWorkMs: stats.agentWorkMs + durationMs }
 }

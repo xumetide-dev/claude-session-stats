@@ -199,6 +199,17 @@ test('进行中的轮次与会话时长每秒刷新', async ($, on) => {
   expect(text).toContain('耗时 1分5秒')
 })
 
+test('插件加载进已有轮次的空闲会话：时长按加载时刻停住，不写占位符', async ($, on) => {
+  const { clock, engine } = answerEngine(on)
+  engine.promptCount = 3
+  // 会话开始 5 分钟后才加载插件（重载插件、恢复会话），之后一直空闲。
+  await clock.advance(300_000)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(60_000)
+
+  expect(await bandText($, 'terminal')).toContain('时长 5分0秒')
+})
+
 test('只计主对话真正生效的压缩', async ($, on) => {
   answerEngine(on)
   // 压缩后至少留一条消息（摘要）；手动压缩被拦下，其余照常完成。
