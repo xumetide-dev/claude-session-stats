@@ -9,6 +9,7 @@ import {
   toRows,
 } from '../hooks/format'
 import { requestChart } from '../hooks/panel/charts'
+import { COLORS } from '../hooks/panel/palette'
 import { paceTone, windowElapsedRatio } from '../hooks/panel/limits-column'
 import {
   PANEL_HEIGHT,
@@ -122,7 +123,9 @@ describe('累加规则', () => {
       firstChunkWaitMs: 5_000, firstChunkCount: 1, compactions: 2,
       recentRequests: [{ speed: 923, ttftMs: 5_000 }],
     }
-    const timingKeys = ['decodedTokens', 'decodeMs', 'firstTokenWaitMs', 'firstTokenCount']
+    const timingKeys = [
+      'decodedTokens', 'decodeMs', 'firstTokenWaitMs', 'firstTokenCount',
+    ]
     for (const key of timingKeys) {
       delete legacy[key]
     }
@@ -198,9 +201,9 @@ describe('上下文格子与面板', () => {
     const markup = requestChart({ x: 0, y: 0, w: 120, h: 30 }, samples, 40)
     expect(markup.split('<rect').length - 1).toBe(40)
     expect(markup.split('opacity="1"').length - 1).toBe(1)
-    // 40 个点：一个 M 起笔，39 段 L。
+    // 40 个点：一个 M 起笔，39 段平滑的 C。
     const path = markup.split('d="')[1]?.split('"')[0] ?? ''
-    expect(path.split('L').length - 1).toBe(39)
+    expect(path.split('C').length - 1).toBe(39)
     // 两轴各自的最大值：速度 50、TTFT 1.49 秒。
     expect(markup).toContain('>50<')
     expect(markup).toContain('>1.5s<')
@@ -215,7 +218,7 @@ describe('上下文格子与面板', () => {
     const markup = requestChart({ x: 0, y: 0, w: 120, h: 30 }, samples, 40)
     expect(markup.split('<rect').length - 1).toBe(2)
     const path = markup.split('d="')[1]?.split('"')[0] ?? ''
-    expect(path.split('L').length - 1).toBe(1)
+    expect(path.split('C').length - 1).toBe(1)
   })
 
   test('限额窗口已过的比例由重置时刻倒推，超出范围的截到 0 与 1', async () => {
@@ -232,7 +235,7 @@ describe('上下文格子与面板', () => {
     // 宽 84、5 段、段间 2：每段 15.2，第 3 段从 34.4 开始，填一半是 7.6。
     const bar = { x: 0, y: 0, w: 84, h: 6 }
     const markup = segmentedBar(bar, 5, 0.5, '#fff')
-    expect(markup.split('fill="#2a2d31"').length - 1).toBe(5)
+    expect(markup.split(`fill="${COLORS.track}"`).length - 1).toBe(5)
     expect(markup.split('fill="#fff"').length - 1).toBe(3)
     expect(markup).toContain('x="34.4" y="0" width="7.6"')
   })

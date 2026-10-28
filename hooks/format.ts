@@ -54,6 +54,14 @@ export function formatDuration(ms: number): string {
   return `${seconds}秒`
 }
 
+/** 地方小时用的时长：满一小时不写秒。2时25分、25分3秒、43秒。 */
+export function formatShortDuration(ms: number): string {
+  const totalMinutes = Math.floor(Math.max(0, ms) / MS_PER_MINUTE)
+  const hours = Math.floor(totalMinutes / 60)
+
+  return hours > 0 ? `${hours}时${totalMinutes % 60}分` : formatDuration(ms)
+}
+
 /** 距重置还有多久，精确到分：6天3时、2时13分、13分、不到1分。 */
 export function formatCountdown(ms: number): string {
   const days = Math.floor(ms / MS_PER_DAY)

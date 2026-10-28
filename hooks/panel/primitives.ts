@@ -3,7 +3,7 @@ import { CATEGORY_COLORS, COLORS } from './palette'
 
 // 面板的图元：每个函数返回一段 SVG 标记字符串，坐标都是面板 viewBox 里的像素。
 // 只拼字符串、不碰数据来源，数值进来之前已经算好。两种历史小图在 charts.ts，
-// 扇形仪表在 zone-gauge.ts。
+// 扇形仪表在 zone-gauge.ts，卡片与小方块在 cards.ts，图标在 icons.ts。
 
 /** 一个矩形区域：左上角与宽高。 */
 export type Area = { x: number; y: number; w: number; h: number }
@@ -11,7 +11,7 @@ export type Area = { x: number; y: number; w: number; h: number }
 /** 面板上一栏的左边缘与宽度。 */
 export type Column = { x: number; w: number }
 
-const LABEL_SIZE = 13
+const LABEL_SIZE = 12
 const LABEL_VALUE_GAP = 6
 const SEGMENT_GAP = 2
 
@@ -87,7 +87,6 @@ export function segmentedBar(
   return parts.join('')
 }
 
-
 /**
  * 比例横条：底轨是 0 到 100%，按比例从左填充。只用于有分母的比例，
  * 超过 100% 的按满格画。
@@ -154,30 +153,5 @@ export function rect(area: Area, fill: string, radius: number): string {
     `<rect x="${fixed(area.x)}" y="${fixed(area.y)}" ` +
     `width="${fixed(Math.max(0, area.w))}" height="${fixed(area.h)}" ` +
     `rx="${fixed(radius)}" fill="${fill}"/>`
-  )
-}
-
-/** 竖直分隔线。 */
-export function divider(x: number, top: number, bottom: number): string {
-  return (
-    `<line x1="${fixed(x)}" y1="${fixed(top)}" ` +
-    `x2="${fixed(x)}" y2="${fixed(bottom)}" ` +
-    `stroke="${COLORS.divider}" stroke-width="1"/>`
-  )
-}
-
-/** 运行状态图标：运行中是绿色三角（播放），空闲是两条灰竖线（暂停）。 */
-export function stateIcon(x: number, y: number, isWorking: boolean): string {
-  if (isWorking) {
-    const triangle =
-      `M${fixed(x)} ${fixed(y - 5)}L${fixed(x + 8)} ${fixed(y)}` +
-      `L${fixed(x)} ${fixed(y + 5)}Z`
-
-    return `<path d="${triangle}" fill="${COLORS.accent}"/>`
-  }
-
-  return (
-    rect({ x, y: y - 5, w: 2.5, h: 10 }, COLORS.dim, 1) +
-    rect({ x: x + 5, y: y - 5, w: 2.5, h: 10 }, COLORS.dim, 1)
   )
 }

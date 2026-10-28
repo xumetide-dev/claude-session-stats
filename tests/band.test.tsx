@@ -1,6 +1,8 @@
 import type { TurnStepChunk } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
+import { COLORS } from '../hooks/panel/palette'
+
 import {
   BAND,
   HOUR_MS,
@@ -92,17 +94,17 @@ test('桌面端画 Svg 面板，数据进到对应的栏里；两处轮播每 20
   expect(source.startsWith('<svg ')).toBe(true)
   expect(source.endsWith('</svg>')).toBe(true)
   expect(source.length).toBeLessThan(131_072)
-  // 子 agent 栏：运行中 1 个，画一个点；下面是合计。
+  // 子 agent 卡片：头部是运行中 1 个，下面的小方块是合计。
   expect(source).toContain('>子 agent<')
   expect(source).toContain('>运行中<')
-  expect(source).toContain('>合计<')
-  // 第二栏第一页是上下文构成点阵，第二页的会话与缓存这时不画。
+  expect(source).toContain('>合计耗时<')
+  // 第二张卡片第一页是上下文构成点阵，第二页的会话与缓存这时不画。
   expect(source).toContain('上下文构成')
   expect(source).not.toContain('总缓存')
-  // prompt 与工具次数只在第一栏的主对话页，时间栏里不再有。
+  // prompt 与工具次数只在第一张卡片的主对话页。
   expect(source).not.toContain('Prompt')
   // 5 小时到 85%、没有重置时刻：比不了时间，按 80% 的规则用提醒色，时间条写占位符。
-  expect(source).toContain('fill="#f0a35e"')
+  expect(source).toContain(`fill="${COLORS.warning}"`)
   expect(source).toContain('>额度<')
   expect(source).toContain('>时间<')
   expect(source).toContain('>无读数<')
@@ -110,15 +112,16 @@ test('桌面端画 Svg 面板，数据进到对应的栏里；两处轮播每 20
   expect(source).toContain('url(#costFill)')
   expect(source).toContain('$1.50')
 
-  // 20 秒后两处同时换到第二页。第一栏是主对话的 prompt 与工具；第二栏是上下文窗口
-  // 占用，与红黄绿三段的缓存仪表（分界写在段间）。
+  // 20 秒后两处同时换到第二页。第一张卡片是主对话的 prompt 与工具；第二张是上下文
+  // 窗口占用，与红黄绿三段的缓存仪表（分界写在段间）。
   await clock.advance(20_000)
   const second = (await panelProps($)).source
   expect(second).toContain('>主对话<')
   expect(second).toContain('>Prompt<')
-  expect(second).toContain('>次数<')
+  expect(second).toContain('>工具次数<')
   expect(second).not.toContain('子 agent')
-  expect(second).toContain('上下文 1.2万 / 20万')
+  expect(second).toContain('>上下文<')
+  expect(second).toContain('>1.2万 / 20万<')
   expect(second).toContain('总缓存')
   expect(second).toContain('>90%<')
   expect(second).not.toContain('上下文构成')
@@ -133,11 +136,12 @@ test('上下文占用按 /context 的自动压缩窗口算，与桌面端的上�
   })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  // 占用写在第二栏的第二页。
+  // 占用写在第二张卡片的第二页。
   await clock.advance(20_000)
   const { source } = await panelProps($)
 
-  expect(source).toContain('上下文 33.9万 / 52.7万')
+  expect(source).toContain('>33.9万 / 52.7万<')
+  expect(source).toContain('>64%<')
   expect(source).not.toContain('/ 100万')
 })
 
@@ -153,7 +157,7 @@ test('主对话一次请求结束后立即刷新上下文占用，不等定时�
   await clock.advance(1_000)
   const { source } = await panelProps($)
 
-  expect(source).toContain('上下文 5万 / 20万')
+  expect(source).toContain('>5万 / 20万<')
 })
 
 test('终端的分隔符与后一段同在一个 Box 里，换行时不会留在行尾', async ($, on) => {
@@ -258,11 +262,12 @@ test('速度与 TTFT 只计主对话，速度柱子只来自主对话', async ($
 
   const { alt, source } = await panelProps($)
   expect(alt).toContain('速度 ≈80.0 tok/s')
-  // 速度读数与速度柱子、柱子的最大值同为绿色。
-  expect(source).toContain('fill="#7ee2a8">≈80.0 tok/s<')
+  // 面板上的大号读数：速度与速度柱子同为绿色，TTFT 与曲线同为蓝色。
+  expect(source).toContain(`fill="${COLORS.accent}">80<tspan`)
   expect(alt).toContain('TTFT ≈0.5s')
-  // 速度小图只有主对话那一根（最新的一根不透明）；扇形仪表的当前段也不透明，按颜色排除。
-  expect(source.split('fill="#7ee2a8" opacity="1"/>').length - 1).toBe(1)
+  expect(source).toContain(`fill="${COLORS.ttft}">0.5<tspan`)
+  // 速度小图只有主对话那一根（最新的一根不透明）。
+  expect(source.split('fill="url(#speedBar)" opacity="1"/>').length - 1).toBe(1)
 })
 
 test('/clear 后计数清零，花费照引擎的新读数', async ($, on) => {
@@ -298,5 +303,6 @@ test('没有记账与限额读数时，面板写明没有，而不是画 0', asy
 
   expect(source).toContain('无记账')
   expect(source).toContain('无限额读数')
-  expect(source).toContain('上下文 —')
+  expect(source).toContain('>上下文<')
+  expect(source).toContain('>—<')
 })
