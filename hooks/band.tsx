@@ -5,6 +5,7 @@ import type { ContextGrid } from '../types'
 import { rowsToText, toRows } from './format'
 import type { Row, Segment } from './format'
 import { buildPanelSvg } from './panel/panel'
+import { toSummaryRow } from './summary'
 import { EMPTY_READINGS } from './readings'
 import { EMPTY_STATS } from './stats'
 
@@ -36,7 +37,7 @@ const COLLAPSED_STORE_KEY = 'isCollapsed'
 /**
  * 输入框上方的状态栏，读到的数据任一变化即重画。桌面端画图形面板（Svg），
  * 其余端画几行小字；面板的 alt 就是这几行字，读屏与不能显示图片时用。
- * 桌面端面板上方有"收起"按钮，收起后只剩第一行摘要与"展开"按钮；
+ * 桌面端面板上方有"收起"按钮，收起后只剩一行摘要（精度更低、美制单位）与"展开"按钮；
  * 终端的状态栏用引擎自带的 [-]（ctrl+x ctrl+a）收起。
  */
 export function registerBand(on: On): void {
@@ -61,7 +62,7 @@ export function registerBand(on: On): void {
       return (
         <Box flexDirection="row" columnGap={1}>
           <Button key="expand" plain dimColor label="展开统计" onPress={toggle} />
-          {drawRows(elements, rows.slice(0, 1))}
+          {drawRows(elements, [toSummaryRow(currentStats, currentReadings)])}
         </Box>
       )
     }

@@ -1,3 +1,4 @@
+import type { TurnStepChunk } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import {
@@ -9,6 +10,7 @@ import {
   answerEngine,
   answerSteps,
   bandText,
+  answerFiles,
   breakdownFixture,
   drain,
   panelProps,
@@ -205,17 +207,34 @@ test('只计主对话真正生效的压缩', async ($, on) => {
   expect(await bandText($, 'desktop')).toContain('压缩 1')
 })
 
+// 仿照实测的隐藏思考流（思考内容不显示）：0.5 秒来第一个空的 thinking 块，思考期间
+// 陆续再来，2.5 秒思考结束、开始出正文，3 秒到末 token，再过 0.6 秒才到 stop。
+// 每项是距上一块的毫秒数与块。块的开始等 engine 块测试里造不出来，它们的处理见
+// token-times.test.ts。
+const HIDDEN_THINKING_STREAM: [number, TurnStepChunk][] = [
+  [500, { kind: 'thinking', index: 0, text: '' }],
+  [1_000, { kind: 'thinking', index: 0, text: '' }],
+  [1_000, { kind: 'thinking', index: 0, text: '' }],
+  [0, { kind: 'text', index: 1, text: 'h' }],
+  [500, { kind: 'text', index: 1, text: 'i' }],
+  [600, { kind: 'stop', stopReason: 'end_turn', usage: null }],
+]
+
 test('速度与 TTFT 只计主对话，速度柱子只来自主对话', async ($, on) => {
   const { clock } = answerEngine(on)
-  // 子 agent 那次输出更多：若被误计入，速度会变成 (200 + 1000) / 4 秒 = 300。
-  const mainUsage = { ...NO_USAGE, output_tokens: 200 }
+  // 主对话输出 201 个 token（含思考）。TTFT 取首个思考块的 0.5 秒；速度是首 token
+  // 之后的 200 个除以首末 token 间的 2.5 秒 = 80，stop 之前那 0.6 秒不算。
+  // 子 agent 那次输出更多：若被误计入，速度会变成 (200 + 999) / 5 秒 ≈ 240。
+  const mainUsage = { ...NO_USAGE, output_tokens: 201 }
   const agentUsage = { ...NO_USAGE, output_tokens: 1_000 }
-  // 发出请求 0.5 秒后来首块，再过 2 秒流结束。
   on('turn.step', async function* (_, e) {
     const usage = e.agentId === undefined ? mainUsage : agentUsage
-    await clock.sleep(500)
-    yield { kind: 'text', index: 0, text: 'hi' }
-    await clock.sleep(2_000)
+    for (const [waitMs, chunk] of HIDDEN_THINKING_STREAM) {
+      if (waitMs > 0) {
+        await clock.sleep(waitMs)
+      }
+      yield chunk
+    }
 
     return {
       turnId: e.turnId, index: e.index, answer: 'hi',
@@ -229,13 +248,18 @@ test('速度与 TTFT 只计主对话，速度柱子只来自主对话', async ($
       turnId: 't1', index: 0, model: 'm', messageCount: 1, agentId,
     }))
     await clock.settle()
-    await clock.advance(500)
-    await clock.advance(2_000)
+    for (const [waitMs] of HIDDEN_THINKING_STREAM) {
+      if (waitMs > 0) {
+        await clock.advance(waitMs)
+      }
+    }
     expect((await reading).answer).toBe('hi')
   }
 
   const { alt, source } = await panelProps($)
-  expect(alt).toContain('速度 ≈100.0 tok/s')
+  expect(alt).toContain('速度 ≈80.0 tok/s')
+  // 速度读数与速度柱子、柱子的最大值同为绿色。
+  expect(source).toContain('fill="#7ee2a8">≈80.0 tok/s<')
   expect(alt).toContain('TTFT ≈0.5s')
   // 速度小图只有主对话那一根（最新的一根不透明）；扇形仪表的当前段也不透明，按颜色排除。
   expect(source.split('fill="#7ee2a8" opacity="1"/>').length - 1).toBe(1)
@@ -260,6 +284,7 @@ test('/clear 后计数清零，花费照引擎的新读数', async ($, on) => {
 
 test('没有记账与限额读数时，面板写明没有，而不是画 0', async ($, on) => {
   const clock = mock.clock(on, { now: START })
+  answerFiles(on)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.usage', () => ({
     value: { startedAt: START, context: { window: 200_000 }, rateLimits: [] },

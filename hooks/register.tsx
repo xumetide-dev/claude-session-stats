@@ -11,6 +11,7 @@ import type {
 import type { ContextGrid } from '../types'
 import { registerBand, restoreCollapsed } from './band'
 import { EMPTY_READINGS, toContextGrid, toReadings } from './readings'
+import { mergeSharedLimits, publishLimits, readSharedLimits } from './shared-limits'
 import {
   EMPTY_STATS,
   addAgentToolCall,
@@ -26,6 +27,8 @@ import {
   resetForClear,
   startMainTurn,
 } from './stats'
+import { markTokenTime, toStreamTiming } from './token-times'
+import type { TokenTimes } from './token-times'
 
 // 计数与读数：会话开始后定时读引擎，按轮次、工具调用与模型请求累加 stats。
 // 输入框上方状态栏的绘制在 band.tsx。
@@ -63,17 +66,21 @@ export const register: Register = on => {
 
 /**
  * 读一次引擎的读数，整体替换 readings；写入会让状态栏重画。
+ * 限额是账号级的，与其他会话经共享文件交换，各窗口显示最新的一份。
  * 花费变了就在花费曲线上记一个点，没变不写 stats。
  */
 async function refreshReadings($: EngineInterface): Promise<void> {
-  const [now, usage, agents, promptCount] = await Promise.all([
+  const [now, usage, agents, promptCount, shared] = await Promise.all([
     $.clock.now(),
     $.session.usage(),
     $.agent.list(),
     $.session.turns(),
+    readSharedLimits($),
   ])
-  const latest = toReadings({ now, usage, agents, promptCount })
+  const own = toReadings({ now, usage, agents, promptCount })
+  const latest = mergeSharedLimits(own, shared)
   await update($, readings, () => latest)
+  publishLimits($, latest, shared)
 
   const { costUsd } = latest
   if (costUsd === null) {
@@ -236,36 +243,29 @@ function refreshGridSoon($: EngineInterface): void {
   })
 }
 
-/** 转发主对话一次请求的流，记下首块时刻；流结束后计入 token、速度与 TTFT。 */
+/**
+ * 转发主对话一次请求的流，记下首 token 与末 token 的到达时刻；流结束后计入 token、
+ * 速度与 TTFT。
+ *
+ * 首末 token 怎么认见 token-times.ts。
+ */
 async function* forwardMainRequest(
   $: EngineInterface,
   stream: HookStream<TurnStepChunk, TurnStepResult>,
   requestedAt: number,
 ): AsyncGenerator<TurnStepChunk, TurnStepResult> {
-  let firstChunkAt: number | undefined
+  let times: TokenTimes = {}
   for await (const chunk of stream) {
-    if (firstChunkAt === undefined) {
-      firstChunkAt = await $.clock.now()
-    }
+    times = markTokenTime(times, chunk.kind, await $.clock.now())
     yield chunk
   }
-  const endedAt = await $.clock.now()
   const response = await stream.result
   const { usage } = response
   if (usage === null) {
     return response
   }
 
-  // 没收到任何流式块、或没有输出的请求不计时，免得 0 秒拉高速度。
-  const firstAt = firstChunkAt
-  const timing =
-    firstAt === undefined || usage.output_tokens === 0
-      ? null
-      : {
-          outputTokens: usage.output_tokens,
-          waitMs: firstAt - requestedAt,
-          streamMs: endedAt - firstAt,
-        }
+  const timing = toStreamTiming(times, requestedAt, usage.output_tokens)
   await update($, stats, current => {
     const counted = addRequestUsage(current, usage)
 

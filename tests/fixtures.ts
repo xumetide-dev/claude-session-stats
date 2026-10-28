@@ -9,10 +9,15 @@ import type {
 } from 'claude-code'
 import type { Engine, MockClock } from 'claude-code/testing'
 
+import { SHARED_LIMITS_FILE } from '../hooks/shared-limits'
+
 // 测试共用的引擎应答与读取工具。测试里 `on` 注册的钩子垫在插件下面，代替引擎作答。
 
 export const START = 1_000_000
 export const HOUR_MS = 3_600_000
+/** 测试里的 HOME 与跨会话共享限额文件的路径；文件只在内存表里，不碰真实的 HOME。 */
+export const TEST_HOME = '/home/test'
+export const SHARED_LIMITS_PATH = `${TEST_HOME}/${SHARED_LIMITS_FILE}`
 
 export const NO_USAGE: TurnUsage = {
   model: 'm',
@@ -82,17 +87,48 @@ export function breakdownFixture(
   }
 }
 
+/** answerEngine 交给测试的东西。 */
+export type AnsweredEngine = {
+  clock: MockClock
+  engine: EngineSide
+  /** $.store 的内容。 */
+  stored: ReadonlyMap<string, unknown>
+  /** $.fs 看到的文件：键是路径，值是内容；测试可预置，也可查看插件写了什么。 */
+  files: Map<string, string>
+}
+
 /**
- * 垫好会话开始所需的引擎应答，装上内存时钟（会话从 START 开始）与内存里的
- * $.store（store 是它开始时的内容，模拟上次会话存下的值）。
- * 返回时钟、引擎读数与 $.store 的那张表：测试改读数后推进时钟即可看到刷新，
- * 查表即可看到插件存了什么。
+ * 用内存里的表回答 $.env.get('HOME') 与 $.fs 的读写，返回那张表。
+ * 每个测试都要垫上：否则插件读写的会是真实 HOME 下的共享限额文件。
+ */
+export function answerFiles(on: On): Map<string, string> {
+  const files = new Map<string, string>()
+  mock.env(on, { HOME: TEST_HOME })
+  on('fs.read', (_, e) => {
+    const text = files.get(e.path)
+
+    return text === undefined ? { deny: `ENOENT: ${e.path}` } : { value: text }
+  })
+  on('fs.write', (_, e) => {
+    files.set(e.path, e.text)
+
+    return { value: undefined }
+  })
+
+  return files
+}
+
+/**
+ * 垫好会话开始所需的引擎应答，装上内存时钟（会话从 START 开始）、内存里的
+ * $.store（store 是它开始时的内容，模拟上次会话存下的值）与内存里的文件。
+ * 测试改读数后推进时钟即可看到刷新，查表即可看到插件存了什么、写了什么。
  */
 export function answerEngine(
   on: On,
   store: Readonly<Record<string, unknown>> = {},
-): { clock: MockClock; engine: EngineSide; stored: ReadonlyMap<string, unknown> } {
+): AnsweredEngine {
   const clock = mock.clock(on, { now: START })
+  const files = answerFiles(on)
   // 不用 mock.store：测试这一侧的 $ 没有 $.store，自己作答才能查看写入的值。
   const stored = new Map<string, unknown>(Object.entries(store))
   on('store.get', (_, e) => ({ value: stored.get(e.key) }))
@@ -122,7 +158,7 @@ export function answerEngine(
   on('agent.list', () => ({ value: engine.agents }))
   on('session.turns', () => ({ value: engine.promptCount }))
 
-  return { clock, engine, stored }
+  return { clock, engine, stored, files }
 }
 
 /** 一次立即结束的请求：一个文本块后返回给定的 usage。 */

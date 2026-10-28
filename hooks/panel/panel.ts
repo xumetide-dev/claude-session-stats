@@ -185,7 +185,7 @@ function cacheValueColor(hitRate: number | null): string {
 /**
  * 第三栏：会话时长，横条是耗时占时长的比例；平均速度、平均 TTFT，
  * 与最近若干次请求的速度（柱）和 TTFT（曲线）。prompt 与工具的次数在第一栏的
- * 主对话页。TTFT 的读数用曲线的颜色，兼作图例。
+ * 主对话页。速度与 TTFT 的读数分别用柱子与曲线的颜色，兼作图例。
  */
 function timeColumn({ stats, readings, isWorking }: PanelInput): string {
   const { x, w } = COLUMNS.time
@@ -204,7 +204,7 @@ function timeColumn({ stats, readings, isWorking }: PanelInput): string {
     labelValue(x + 14, 32, '时长', formatDuration(sessionMs)) +
     gaugeBar({ x, y: 42, w, h: BAR_HEIGHT }, workRatio, COLORS.accent) +
     caption(x, 64, workLine) +
-    labelValue(x, 92, '速度', speedText) +
+    labelValue(x, 92, '速度', speedText, COLORS.accent) +
     caption(x + w, 92, `TTFT ${ttftText}`, { anchor: 'end', color: COLORS.ttft }) +
     requestChart({ x, y: 102, w, h: 50 }, stats.recentRequests, REQUEST_SLOTS)
   )

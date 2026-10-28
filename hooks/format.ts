@@ -77,16 +77,16 @@ export function cacheHitRate(stats: SessionStats): number | null {
 
 /** 输出速度，token/秒；还没有计过时的请求时为 null。 */
 export function outputSpeed(stats: SessionStats): number | null {
-  return stats.streamMs === 0
+  return stats.decodeMs === 0
     ? null
-    : stats.streamedOutputTokens / (stats.streamMs / MS_PER_SECOND)
+    : stats.decodedTokens / (stats.decodeMs / MS_PER_SECOND)
 }
 
 /** 平均首 token 延迟，毫秒；还没有计过时的请求时为 null。 */
 export function averageTtft(stats: SessionStats): number | null {
-  return stats.firstChunkCount === 0
+  return stats.firstTokenCount === 0
     ? null
-    : stats.firstChunkWaitMs / stats.firstChunkCount
+    : stats.firstTokenWaitMs / stats.firstTokenCount
 }
 
 /** 主对话耗时：已结束各轮之和，加上进行中那一轮到现在为止的时长。 */

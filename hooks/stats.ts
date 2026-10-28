@@ -12,10 +12,10 @@ export const EMPTY_STATS: SessionStats = {
   cacheReadTokens: 0,
   workMs: 0,
   mainTurnStartedAt: null,
-  streamedOutputTokens: 0,
-  streamMs: 0,
-  firstChunkWaitMs: 0,
-  firstChunkCount: 0,
+  decodedTokens: 0,
+  decodeMs: 0,
+  firstTokenWaitMs: 0,
+  firstTokenCount: 0,
   toolCalls: 0,
   toolMs: 0,
   agentTokens: 0,
@@ -28,40 +28,65 @@ export const EMPTY_STATS: SessionStats = {
 // 速度与 TTFT 小图保留最近 40 次请求；花费曲线最多 120 个点。
 const MAX_REQUEST_SAMPLES = 40
 const MAX_COST_POINTS = 120
-// 流式时长不足 0.5 秒的请求在小图里没有速度柱子（TTFT 照记）：输出几个 token
-// 就结束的请求，时长接近 0，算出来的速度会是离群值，把其余柱子压扁。
-// 总速度仍计入它们。
-const MIN_SAMPLE_STREAM_MS = 500
+// 首末 token 相隔不足 0.5 秒的请求在小图里没有速度柱子（TTFT 照记）：输出几个
+// token 就结束的请求，时长接近 0，又常是一批 token 一起到达，算出来的速度是离群值，
+// 把其余柱子压扁。总速度仍计入它们。
+const MIN_SAMPLE_DECODE_MS = 500
 const MS_PER_SECOND = 1000
 
 /** 一次请求计时的结果，主对话的才计入速度与 TTFT。 */
 export type StreamTiming = {
+  /** 这次请求的输出 token，含思考。 */
   outputTokens: number
-  /** 从发出请求到收到首个流式块，毫秒。 */
-  waitMs: number
-  /** 从首个流式块到流结束，毫秒。 */
-  streamMs: number
+  /** 从发出请求到首 token，毫秒（TTFT）。 */
+  ttftMs: number
+  /** 从首 token 到末 token，毫秒。 */
+  decodeMs: number
 }
 
-/** $.state 里存的统计：可能来自旧版本，缺新字段；只记速度的旧版本带着 recentSpeeds。 */
-type StoredStats = Omit<SessionStats, 'recentRequests'> & {
-  recentRequests?: RequestSample[]
-  recentSpeeds?: number[]
-}
+/** 现行的计时字段：旧版本的统计里没有，按它们判断计时口径是不是旧的。 */
+type TimingFields =
+  | 'recentRequests' | 'decodedTokens' | 'decodeMs'
+  | 'firstTokenWaitMs' | 'firstTokenCount'
 
 /**
- * mod 重载后 $.state 里可能是旧版本的统计：用空统计补齐新加的字段；
- * 旧版本只有速度的样本转成 TTFT 为 null 的样本，小图里保留它们的柱子。
+ * $.state 里存的统计：可能来自旧版本，缺新字段、带着旧字段。各版本的计时字段：
+ * 只记速度的 recentSpeeds；从首个流式块计时的 streamedOutputTokens、streamMs；
+ * 从发出请求计到响应结束的 timedOutputTokens、generationMs；TTFT 记到首个流式块的
+ * firstChunkWaitMs、firstChunkCount。
+ */
+type StoredStats = Omit<SessionStats, TimingFields> &
+  Partial<Pick<SessionStats, TimingFields>> & {
+    recentSpeeds?: number[]
+    streamedOutputTokens?: number
+    streamMs?: number
+    timedOutputTokens?: number
+    generationMs?: number
+    firstChunkWaitMs?: number
+    firstChunkCount?: number
+  }
+
+/**
+ * mod 重载后 $.state 里可能是旧版本的统计：用空统计补齐新加的字段。
+ * 旧版本的速度与 TTFT 口径不同（见 StoredStats），合计与样本不能和新的混算，
+ * 一并清掉，从下一次请求重新计。
  * 重载发生在轮次结束之后，此时没有进行中的轮次，开始时间一并清掉，
  * 免得错过的 turn.complete 让耗时一直往上涨。
  */
 export function backfillStats(stored: SessionStats): SessionStats {
-  const { recentSpeeds, ...current } = stored as StoredStats
-  const recentRequests =
-    current.recentRequests ??
-    (recentSpeeds ?? []).map(speed => ({ speed, ttftMs: null }))
+  const {
+    recentSpeeds, streamedOutputTokens, streamMs, timedOutputTokens, generationMs,
+    firstChunkWaitMs, firstChunkCount, ...current
+  } = stored as StoredStats
+  if (current.decodeMs === undefined) {
+    const {
+      recentRequests, decodedTokens, firstTokenWaitMs, firstTokenCount, ...rest
+    } = current
 
-  return { ...EMPTY_STATS, ...current, recentRequests, mainTurnStartedAt: null }
+    return { ...EMPTY_STATS, ...rest, mainTurnStartedAt: null }
+  }
+
+  return { ...EMPTY_STATS, ...current, mainTurnStartedAt: null }
 }
 
 /** 一次请求的 token 计入会话总量与缓存命中率。主对话和子 agent 的请求都调用。 */
@@ -92,25 +117,32 @@ export function addAgentTokens(stats: SessionStats, usage: ModelUsage): SessionS
   return { ...stats, agentTokens: stats.agentTokens + tokens }
 }
 
-/** 主对话一次请求的计时计入速度与 TTFT。 */
+/**
+ * 主对话一次请求的计时计入速度与 TTFT。
+ *
+ * 速度按通行的单请求口径（vLLM、AIPerf、Artificial Analysis）：首 token 之后的
+ * 输出 token 数除以首末 token 之间的时长。首 token 的到达是计时起点，不算在窗口里
+ * 生成的 token 内。首末 token 同时到达的请求没有时长，只计 TTFT。
+ */
 export function addStreamTiming(
   stats: SessionStats,
   timing: StreamTiming,
 ): SessionStats {
-  const isSpeedSampled = timing.streamMs >= MIN_SAMPLE_STREAM_MS
-  const speed = timing.outputTokens / (timing.streamMs / MS_PER_SECOND)
+  const hasDecodeTime = timing.decodeMs > 0
+  const decodedTokens = hasDecodeTime ? Math.max(0, timing.outputTokens - 1) : 0
+  const isSpeedSampled = timing.decodeMs >= MIN_SAMPLE_DECODE_MS
   const sample: RequestSample = {
-    speed: isSpeedSampled ? speed : null,
-    ttftMs: timing.waitMs,
+    speed: isSpeedSampled ? decodedTokens / (timing.decodeMs / MS_PER_SECOND) : null,
+    ttftMs: timing.ttftMs,
   }
   const recentRequests = [...stats.recentRequests, sample].slice(-MAX_REQUEST_SAMPLES)
 
   return {
     ...stats,
-    streamedOutputTokens: stats.streamedOutputTokens + timing.outputTokens,
-    streamMs: stats.streamMs + timing.streamMs,
-    firstChunkWaitMs: stats.firstChunkWaitMs + timing.waitMs,
-    firstChunkCount: stats.firstChunkCount + 1,
+    decodedTokens: stats.decodedTokens + decodedTokens,
+    decodeMs: stats.decodeMs + timing.decodeMs,
+    firstTokenWaitMs: stats.firstTokenWaitMs + timing.ttftMs,
+    firstTokenCount: stats.firstTokenCount + 1,
     recentRequests,
   }
 }
