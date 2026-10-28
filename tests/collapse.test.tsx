@@ -9,18 +9,19 @@ const PAD = '\u2800'.repeat(6)
 
 // 桌面端面板的收起与展开：按钮切换，状态另存一份在 $.store，新会话沿用。
 
-test('面板顶部正中是扁的尖括号，不写文字；按钮名称仍是收起、展开面板', async ($, on) => {
+test('面板顶部正中是扁的尖括号，不写文字', async ($, on) => {
   answerEngine(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
 
+  // 桌面端画的是 label：它只能是尖括号本身，不能是"收起面板"之类的文字。
   const collapse = await ui.find({ key: 'collapse' })
-  expect(collapse?.props.label).toBe('收起面板')
+  expect(collapse?.props.label).toBe(`${PAD}\uFE40${PAD}`)
   // 尖括号两侧垫着盲文空白，可点范围比线条宽。
   expect(collapse?.text).toBe(`${PAD}\uFE40${PAD}`)
   await ui.press({ key: 'collapse' })
   const expand = await ui.find({ key: 'expand' })
-  expect(expand?.props.label).toBe('展开面板')
+  expect(expand?.props.label).toBe(`${PAD}\uFE3F${PAD}`)
   expect(expand?.text).toBe(`${PAD}\uFE3F${PAD}`)
   const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text).join(' ')
   expect(texts).not.toContain('展开')

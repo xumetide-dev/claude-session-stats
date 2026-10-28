@@ -96,8 +96,9 @@ export function registerBand(on: On): void {
 }
 
 /**
- * 顶部正中的开关：最小号字的尖括号，平时暗色，悬停时亮。按钮的名称（读屏念的）
- * 仍是"收起面板""展开面板"，key 不随尖括号变。
+ * 顶部正中的开关：最小号字的尖括号，平时暗色，悬停时亮。不另给 label：桌面端
+ * 画的是 label 的文字，另给了就画那段文字、不画尖括号；不给时引擎取子元素的文字
+ * 作 label。key 不随尖括号变。
  */
 function drawToggle(
   { Box, Button, Text }: Pick<Elements['desktop'], 'Box' | 'Button' | 'Text'>,
@@ -109,7 +110,6 @@ function drawToggle(
     <Box flexDirection="row" justifyContent="center">
       <Button
         key={isCollapsed ? 'expand' : 'collapse'}
-        label={isCollapsed ? '展开面板' : '收起面板'}
         plain
         dimColor
         onPress={onPress}
