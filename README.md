@@ -1,5 +1,12 @@
 # session-stats
 
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](.claude-plugin/plugin.json)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.309-d97757)](https://github.com/anthropics/claude-code)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+
+[English](README.en.md) | 简体中文
+
 Claude Code 插件，在输入框上方显示当前会话的统计：上下文与缓存命中率、输出速度与
 TTFT、运行时长、5 小时与 7 天限额、花费。桌面端显示为图形面板，终端显示为几行文字。
 
