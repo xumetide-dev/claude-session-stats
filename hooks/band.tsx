@@ -4,6 +4,7 @@ import type { Elements, EngineInterface, On } from 'claude-code'
 import type { ContextGrid } from '../types'
 import { rowsToText, toRows } from './format'
 import type { Row, Segment } from './format'
+import { CHEVRON_HEIGHT, CHEVRON_WIDTH, chevronSvg } from './panel/chevron'
 import { buildPanelSvg } from './panel/panel'
 import { toSummaryRow } from './summary'
 import { EMPTY_READINGS } from './readings'
@@ -36,12 +37,13 @@ const COLLAPSED_STORE_KEY = 'isCollapsed'
 
 // 收起与展开的开关是面板顶部正中一个扁的尖括号，不写文字。面板贴着输入框，
 // 收起时上沿往下落，展开时往上长，所以展开时画向下的 ﹀，收起后画向上的 ︿。
-const COLLAPSE_GLYPH = '\uFE40'
-const EXPAND_GLYPH = '\uFE3F'
-// 尖括号两侧各垫几个盲文空白（U+2800），把按钮的可点范围撑宽，不必点中线条：
-// 按钮整段文字都可点，悬停时整段反显。普通空格在文字两端会被吞掉；盲文空白
-// 不算空白字符，不会。
-const TOGGLE_PADDING = '\u2800'.repeat(6)
+// 尖括号是一个 8 像素高的 Svg，只占这么高；可点的是叠在它上面的一个按钮（见
+// drawToggle），按钮比尖括号高、宽，不必点中线条。
+// 按钮的文字是一串盲文空白（U+2800）：看不见，只用来撑出可点的宽度。普通空格在
+// 文字两端会被吞掉；盲文空白不算空白字符，不会。
+const TOGGLE_HIT_LABEL = '\u2800'.repeat(10)
+// 悬停的分组：指针在按钮上时，同组里亮的那个尖括号显出来，盖住暗的。
+const TOGGLE_HOVER_SCOPE = 'session-stats-toggle'
 
 /**
  * 输入框上方的状态栏，读到的数据任一变化即重画。桌面端画图形面板（Svg），
@@ -96,26 +98,62 @@ export function registerBand(on: On): void {
 }
 
 /**
- * 顶部正中的开关：最小号字的尖括号，平时暗色，悬停时亮。不另给 label：桌面端
- * 画的是 label 的文字，另给了就画那段文字、不画尖括号；不给时引擎取子元素的文字
- * 作 label。key 不随尖括号变。
+ * 顶部正中的开关，一行只有尖括号那么高（8 像素）：
+ * - 平时画暗的尖括号；指针在按钮上时，同一位置显出亮的尖括号盖住它。
+ * - 按钮绝对定位，不占这一行的高度，上下各伸出一行再在其中居中，比尖括号高、
+ *   宽得多：点到尖括号附近就算数。它是这一行最后一个子元素，画在最上层。
+ * 按钮不另给 label：桌面端画的是 label 的文字，引擎取子元素的文字作 label。
+ * key 不随方向变。
  */
 function drawToggle(
-  { Box, Button, Text }: Pick<Elements['desktop'], 'Box' | 'Button' | 'Text'>,
+  { Box, Button, Svg }: Pick<Elements['desktop'], 'Box' | 'Button' | 'Svg'>,
   { isCollapsed, onPress }: { isCollapsed: boolean; onPress: () => void },
 ) {
-  const glyph = isCollapsed ? EXPAND_GLYPH : COLLAPSE_GLYPH
+  const direction = isCollapsed ? 'up' : 'down'
+  const name = isCollapsed ? '展开面板' : '收起面板'
+  const chevron = (isLit: boolean) => (
+    <Svg
+      source={chevronSvg(direction, isLit)}
+      alt={name}
+      width={CHEVRON_WIDTH}
+      height={CHEVRON_HEIGHT}
+    />
+  )
 
   return (
     <Box flexDirection="row" justifyContent="center">
-      <Button
-        key={isCollapsed ? 'expand' : 'collapse'}
-        plain
-        dimColor
-        onPress={onPress}
+      {chevron(false)}
+      <Box
+        position="absolute"
+        top={0}
+        left={0}
+        right={0}
+        flexDirection="row"
+        justifyContent="center"
+        display="none"
+        hover={{ scope: TOGGLE_HOVER_SCOPE, display: 'flex' }}
       >
-        <Text size="caption">{`${TOGGLE_PADDING}${glyph}${TOGGLE_PADDING}`}</Text>
-      </Button>
+        {chevron(true)}
+      </Box>
+      <Box
+        position="absolute"
+        top={-1}
+        bottom={-1}
+        left={0}
+        right={0}
+        flexDirection="row"
+        justifyContent="center"
+        alignItems="center"
+      >
+        <Button
+          key={isCollapsed ? 'expand' : 'collapse'}
+          plain
+          hover={{ scope: TOGGLE_HOVER_SCOPE }}
+          onPress={onPress}
+        >
+          {TOGGLE_HIT_LABEL}
+        </Button>
+      </Box>
     </Box>
   )
 }

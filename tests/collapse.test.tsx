@@ -3,26 +3,33 @@ import { expect, test } from 'claude-code/testing'
 import { formatUsCount, formatUsd, toSummaryRow } from '../hooks/summary'
 import { EMPTY_READINGS } from '../hooks/readings'
 import { EMPTY_STATS } from '../hooks/stats'
-import { BAND, answerEngine } from './fixtures'
+import { BAND, answerEngine, findPanelSvg } from './fixtures'
 
-const PAD = '\u2800'.repeat(6)
+const HIT_LABEL = '\u2800'.repeat(10)
 
 // 桌面端面板的收起与展开：按钮切换，状态另存一份在 $.store，新会话沿用。
 
-test('面板顶部正中是扁的尖括号，不写文字', async ($, on) => {
+test('开关是 8 像素高的尖括号 Svg，可点的是叠在上面、看不见文字的按钮', async ($, on) => {
   answerEngine(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const chevronsOf = async (alt: string) =>
+    (await ui.findAll({ type: 'Svg' })).filter(svg => svg.props.alt === alt)
 
-  // 桌面端画的是 label：它只能是尖括号本身，不能是"收起面板"之类的文字。
+  // 展开时是向下的尖括号：暗的一个，悬停时显出的亮的一个。
+  const down = await chevronsOf('收起面板')
+  expect(down).toHaveLength(2)
+  expect(down[0]?.props.height).toBe(8)
+  expect(String(down[0]?.props.source)).toContain('M3 1.5L12 6.5L21 1.5')
+  // 桌面端画的是按钮的 label：只能是看不见的空白，不能是"收起面板"之类的文字。
   const collapse = await ui.find({ key: 'collapse' })
-  expect(collapse?.props.label).toBe(`${PAD}\uFE40${PAD}`)
-  // 尖括号两侧垫着盲文空白，可点范围比线条宽。
-  expect(collapse?.text).toBe(`${PAD}\uFE40${PAD}`)
+  expect(collapse?.props.label).toBe(HIT_LABEL)
+
   await ui.press({ key: 'collapse' })
-  const expand = await ui.find({ key: 'expand' })
-  expect(expand?.props.label).toBe(`${PAD}\uFE3F${PAD}`)
-  expect(expand?.text).toBe(`${PAD}\uFE3F${PAD}`)
+  const up = await chevronsOf('展开面板')
+  expect(up).toHaveLength(2)
+  expect(String(up[0]?.props.source)).toContain('M3 6.5L12 1.5L21 6.5')
+  expect((await ui.find({ key: 'expand' }))?.props.label).toBe(HIT_LABEL)
   const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text).join(' ')
   expect(texts).not.toContain('展开')
   await ui.unmount()
@@ -35,15 +42,15 @@ test('桌面端面板按收起变成一行摘要，按展开恢复面板', async
   const textsOf = async () =>
     (await ui.findAll({ type: 'Text' })).map(text => text.text).join(' ')
 
-  expect(await ui.find({ type: 'Svg' })).toBeDefined()
+  expect(await findPanelSvg(ui)).toBeDefined()
   await ui.press({ key: 'collapse' })
   // 收起后没有面板，只剩第一行摘要（压缩、会话、命中率……）与展开的尖括号。
-  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+  expect(await findPanelSvg(ui)).toBeUndefined()
   expect(await textsOf()).toContain('会话')
   expect(await textsOf()).not.toContain('时长')
 
   await ui.press({ key: 'expand' })
-  expect(await ui.find({ type: 'Svg' })).toBeDefined()
+  expect(await findPanelSvg(ui)).toBeDefined()
   await ui.unmount()
 })
 
@@ -67,7 +74,7 @@ test('收起状态存进 $.store；上次收起的，新会话一开始就是一
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
 
-  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+  expect(await findPanelSvg(ui)).toBeUndefined()
   await ui.press({ key: 'expand' })
   expect(stored.get('isCollapsed')).toBe(false)
   await ui.press({ key: 'collapse' })

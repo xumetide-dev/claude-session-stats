@@ -7,7 +7,7 @@ import type {
   SessionRateLimit,
   TurnUsage,
 } from 'claude-code'
-import type { Engine, MockClock } from 'claude-code/testing'
+import type { Engine, MockClock, Mounted } from 'claude-code/testing'
 
 import { SHARED_LIMITS_FILE } from '../hooks/shared-limits'
 
@@ -184,10 +184,23 @@ export async function drain<R>(stream: AsyncGenerator<unknown, R>): Promise<R> {
   return item.value
 }
 
-/** 桌面端画出的 Svg 元素的属性：source 与 alt。 */
+/** 挂载在桌面端的状态栏，测试按它查找画出的元素。 */
+type MountedBand = Pick<Mounted<'desktop', 'AbovePrompt'>, 'findAll'>
+
+// 收起、展开开关的尖括号也是 Svg，按 alt 与面板区分。
+const TOGGLE_ALTS = ['收起面板', '展开面板']
+
+/** 桌面端的面板 Svg（不是开关的尖括号）；收起时没有，为 undefined。 */
+export async function findPanelSvg(ui: MountedBand) {
+  const svgs = await ui.findAll({ type: 'Svg' })
+
+  return svgs.find(svg => !TOGGLE_ALTS.includes(String(svg.props.alt)))
+}
+
+/** 桌面端画出的面板 Svg 的属性：source 与 alt。 */
 export async function panelProps($: Engine): Promise<{ source: string; alt: string }> {
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const svg = await ui.find({ type: 'Svg' })
+  const svg = await findPanelSvg(ui)
   await ui.unmount()
 
   return { source: String(svg?.props.source ?? ''), alt: String(svg?.props.alt ?? '') }
