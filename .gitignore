@@ -1,0 +1,5 @@
+.DS_Store
+*.log
+.mcpb-cache/
+# Claude Code 加载插件时生成的类型声明，目录内另有一份忽略全部内容的 .gitignore
+.claude-plugin/types/

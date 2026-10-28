@@ -1,0 +1,6 @@
+{
+  "name": "claude-session-stats",
+  "owner": { "name": "xumetide-dev" },
+  "description": "Claude Code 会话状态栏插件：上下文、缓存、速度、限额与花费",
+  "plugins": [{ "name": "session-stats", "source": "./" }]
+}
