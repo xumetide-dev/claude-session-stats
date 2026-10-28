@@ -1,97 +1,135 @@
 # session-stats
 
-Claude Code 插件（mod）：在输入框上方显示当前会话的状态统计。桌面端是一张图形面板，
-终端是几行文字。
+Claude Code 插件，在输入框上方显示当前会话的统计：上下文与缓存命中率、输出速度与
+TTFT、运行时长、5 小时与 7 天限额、花费。桌面端显示为图形面板，终端显示为几行文字。
+
+![桌面端面板](docs/images/panel-page-1.png)
 
 ## 显示内容
 
-桌面端面板是深色底上的六张卡片：
+### 桌面端
+
+面板由六张卡片组成。前两张卡片各有两页，每 20 秒同时翻页，下图是第二页：
+
+![桌面端面板第二页](docs/images/panel-page-2.png)
 
 | 卡片 | 内容 |
 | --- | --- |
-| 子 agent / 主对话（两页轮播） | 子 agent：运行中的个数，合计的耗时、token、工具次数；主对话：是否在运行，Prompt 次数、工具次数与耗时 |
-| 上下文 / 会话（两页轮播） | 压缩次数与上下文构成点阵；会话 token、上下文占用（按自动压缩窗口计算）、缓存命中率扇形仪表 |
-| 运行时长 | 会话开始到主对话最后一轮结束的时、分、秒（空闲时不再计时），主对话运行中时标 LIVE；耗时与耗时占比 |
-| 处理速度 / TTFT | 平均输出速度与 TTFT 的大号读数，最近 24 次请求的双轴小图 |
-| 限额 | 5 小时与 7 天窗口：额度条与时间分段条，额度用得比时间快时变橙；窗口没有读数或已过重置时刻时按 0%、未开始计时显示 |
-| 花费 | 当前花费与花费随时间的阶梯折线 |
+| 子 agent / 主对话 | 第一页：运行中的子 agent 个数，子 agent 合计的耗时、token、工具调用次数。第二页：主对话是否在运行，Prompt 次数、工具调用次数与耗时 |
+| 上下文 / 会话 | 第一页：压缩次数与上下文构成点阵。第二页：会话 token、上下文占用、缓存命中率仪表 |
+| 运行时长 | 会话时长的时、分、秒，主对话运行时标 LIVE；耗时及其占会话时长的比例 |
+| 处理速度 / TTFT | 平均输出速度与平均 TTFT，最近 24 次请求的速度柱与 TTFT 曲线 |
+| 限额 | 5 小时与 7 天窗口的已用额度与已过时间 |
+| 花费 | 当前花费与随时间变化的阶梯折线 |
 
-- 两处轮播每 20 秒同时换一页。
-- 面板顶部正中的尖括号把面板收成一行摘要（﹀），再按一次展开（︿）；收起状态跨会话保留。
-- 终端的状态栏用 Claude Code 自带的 `[-]`（ctrl+x ctrl+a）收起。
-- 速度、TTFT 与花费的历史从插件加载后开始记录，加载之前的没有。
-- 只计主对话的请求。TTFT 是发出请求到响应的第一个块；速度是首 token 之后的输出
-  token（含思考）除以首末 token 之间的时长。首末 token 相隔不足 1 秒的请求只计
-  TTFT，不计速度：这类请求的 token 常是一批一起到达，算出来的速度是离群值。
+面板顶部正中的尖括号用于收起和展开：点 ﹀ 收起为一行摘要，点 ︿ 恢复面板。
+收起状态在会话之间保留。收起后的摘要：
+
+```
+压缩 1 │ 会话 39.1M │ 命中率 98% │ 速度 129 tok/s │ TTFT 2.7s │ 花费 $6.51
+```
+
+### 终端
+
+终端最多显示四行，窗口变窄时自动换行。没有限额读数时（如使用 API key 计费）不显示
+限额一行。
+
+```
+压缩 1 │ 会话 3912万 │ 命中率 98.2% │ 速度 ≈129.1 tok/s │ TTFT ≈2.7s │ 花费 $6.51
+时长 42分49秒 │ 耗时 12分47秒 │ Prompt 7 │ 工具 213次 · 5分15秒
+5小时 19% · 4时39分后重置 │ 7天 30% · 3天18时后重置
+运行中子 agent 1 │ 子 agent 合计 29分59秒 · 1196万 token · 工具 113次
+```
+
+用 Claude Code 自带的 `[-]`（ctrl+x ctrl+a）收起状态栏。
+
+## 指标说明
+
+| 指标 | 计算方式 |
+| --- | --- |
+| 会话 token | 主对话与子 agent 各次请求的输入（含缓存读取与写入）与输出之和 |
+| 命中率 | 缓存读取的 token 占输入 token 的比例 |
+| 上下文占用 | 与 `/context` 一致，分母是自动压缩窗口，可能小于模型的上下文窗口 |
+| 速度 | 首 token 之后的输出 token（含思考）之和，除以各次请求首末 token 之间的时长之和 |
+| TTFT | 从发出请求到响应开始返回的时长，各次请求取平均 |
+| 运行时长 | 从会话开始到主对话最后一轮结束；主对话运行时算到当前，空闲时不再增加 |
+| 耗时 | 主对话各轮的时长之和 |
+| 工具耗时 | 各次工具调用的时长之和；并行的调用分别计时，合计可能超过耗时 |
+| 限额 | 5 小时与 7 天窗口的已用百分比与重置时刻 |
+| 花费 | 与 `/cost` 一致 |
+
+计算规则：
+
+- 速度与 TTFT 只统计主对话的请求。子 agent 常使用其他模型，并且并行运行。
+- 首末 token 相隔不足 1 秒的请求只计入 TTFT，不计入速度。这类请求的 token 常常
+  一批同时到达，算出的速度偏离实际。
+- 恢复的会话，运行时长从首次启动算起。插件加载时会话已经空闲的，运行时长先算到
+  加载时刻，主对话下一轮结束后更正。
+- 限额是账号级的。各会话把读数写入 `~/.claude/session-stats/rate-limits.json`，
+  每个窗口显示所有会话中最新的一份。窗口没有读数或已过重置时刻时，显示为 0%。
+- 已用额度的比例超过窗口已过时间的比例时，面板上的限额显示为橙色，用满时为红色。
+  终端按已用百分比显示：80% 起为橙色，100% 为红色。
+- 速度、TTFT 与花费的历史从插件加载后开始记录。`/clear` 后计数清零。
 
 ## 安装
 
-### 从本地目录
+在 Claude Code 2.1.309 上测试。
 
-添加本目录为 marketplace，再安装插件：
-
-```bash
-claude plugin marketplace add /path/to/claude-session-stats
-```
-
-```bash
-claude plugin install session-stats@claude-session-stats
-```
-
-安装后新开的会话生效。本地目录安装的插件直接读取该目录，修改代码后在会话中运行
-`/reload-plugins` 重新读取。
-
-### 从 GitHub
-
-在终端会话的输入框中输入以下命令，按 `y` 添加 marketplace，再选择安装范围（scope）：
-
-```
-/plugin install session-stats --marketplace <owner>/claude-session-stats
-```
-
-从 shell 安装：
+从 GitHub 安装，`<owner>` 为仓库所在的账号或组织：
 
 ```bash
 claude plugin install session-stats --marketplace <owner>/claude-session-stats
 ```
 
-在桌面端：点击输入框旁的 +，选择 Plugins，用 Add marketplace 填入
-`<owner>/claude-session-stats`，再 Add plugin。
+在会话中安装：
 
-`<owner>` 为仓库所在的 GitHub 账号或组织。
+```
+/plugin install session-stats --marketplace <owner>/claude-session-stats
+```
+
+从本地目录安装，路径为本仓库的克隆目录：
+
+```bash
+claude plugin install session-stats --marketplace /path/to/claude-session-stats
+```
+
+安装后新开的会话生效；已打开的会话运行 `/reload-plugins`。从本地目录安装的插件
+直接读取该目录，修改代码后同样运行 `/reload-plugins`。
 
 ## 开发
 
-```
-.claude-plugin/plugin.json       插件清单
-.claude-plugin/marketplace.json  marketplace 文件，唯一条目指向仓库根目录
-hooks/register.tsx               入口：读数刷新与各项计数
-hooks/band.tsx                   输入框上方状态栏的绘制与收起
-hooks/panel/                     桌面端 SVG 面板的卡片、图标与图元
-hooks/format.ts                  数值格式化与终端文字行
-hooks/stats.ts                   计数的累加规则
-hooks/readings.ts                引擎读数与上下文格子的转换
-types/index.d.ts                 $.state 的类型契约
-tests/                           测试，由 claude plugin test 运行
-```
+| 路径 | 内容 |
+| --- | --- |
+| `.claude-plugin/plugin.json` | 插件清单 |
+| `.claude-plugin/marketplace.json` | marketplace 文件，唯一条目指向仓库根目录 |
+| `hooks/register.tsx` | 入口：读数刷新与各项计数 |
+| `hooks/band.tsx` | 状态栏的绘制、收起与展开 |
+| `hooks/panel/` | 桌面端面板的卡片、图表与图标 |
+| `hooks/format.ts` | 数值格式化与终端的文字行 |
+| `hooks/summary.ts` | 收起后的一行摘要 |
+| `hooks/stats.ts` | 计数的累加规则 |
+| `hooks/token-times.ts` | 首末 token 的计时 |
+| `hooks/shared-limits.ts` | 限额读数的跨会话共享 |
+| `types/index.d.ts` | `$.state` 的类型契约 |
+| `tests/` | 测试 |
+| `scripts/readme-images.mts` | 用示例数据渲染本文的面板截图 |
 
-检查命令，在本目录下运行：
-
-```bash
-tsc -p .
-```
-
-```bash
-claude plugin test .
-```
+类型检查需要全局安装的 TypeScript。在仓库根目录运行类型检查、测试与清单校验：
 
 ```bash
-claude plugin validate .
+tsc -p . && claude plugin test . && claude plugin validate .
 ```
 
 `tsconfig.json` 继承 `.claude-plugin/types/tsconfig.json`。该目录是 Claude Code
-加载插件时生成的 API 类型声明，不入库；克隆后先用 `claude --plugin-dir .`
-启动一次会话生成它，再运行类型检查。
+加载插件时生成的类型声明，不入库。克隆后先运行一次 `claude --plugin-dir .` 生成它，
+再做类型检查。
+
+本文的截图用示例数据渲染，需要 `rsvg-convert`（macOS 上运行 `brew install librsvg`
+安装）：
+
+```bash
+npx tsx scripts/readme-images.mts
+```
 
 ## 许可证
 
