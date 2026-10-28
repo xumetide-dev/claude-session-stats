@@ -60,8 +60,8 @@ TTFT、运行时长、5 小时与 7 天限额、花费。桌面端显示为图�
 | 速度 | 首 token 之后的输出 token（含思考）之和，除以各次请求首末 token 之间的时长之和 |
 | TTFT | 从发出请求到响应开始返回的时长，各次请求取平均 |
 | 运行时长 | 从会话开始到主对话最后一轮结束；主对话运行时算到当前，空闲时不再增加 |
-| 耗时 | 主对话各轮的时长之和 |
-| 工具耗时 | 各次工具调用的时长之和；并行的调用分别计时，合计可能超过耗时 |
+| 耗时 | 主对话各轮的时长之和，含等待权限确认的时间 |
+| 工具耗时 | 各次工具调用从发起到返回的时长之和，含等待权限确认的时间；并行的调用分别计时，合计可能超过耗时 |
 | 限额 | 5 小时与 7 天窗口的已用百分比与重置时刻 |
 | 花费 | 与 `/cost` 一致 |
 
@@ -76,22 +76,25 @@ TTFT、运行时长、5 小时与 7 天限额、花费。桌面端显示为图�
   每个窗口显示所有会话中最新的一份。窗口没有读数或已过重置时刻时，显示为 0%。
 - 已用额度的比例超过窗口已过时间的比例时，面板上的限额显示为橙色，用满时为红色。
   终端按已用百分比显示：80% 起为橙色，100% 为红色。
-- 速度、TTFT 与花费的历史从插件加载后开始记录。`/clear` 后计数清零。
+- 会话 token、压缩次数、耗时、工具调用、速度、TTFT 与子 agent 合计由插件累计，
+  从插件在当前进程中加载时开始计数，`/reload-plugins` 不清零；用 `--resume`
+  恢复的会话从 0 开始。花费、Prompt 次数、上下文占用与限额是 Claude Code 自身的
+  读数，覆盖整个会话。花费曲线从插件加载时开始记录。`/clear` 后计数清零。
 
 ## 安装
 
 在 Claude Code 2.1.309 上测试。
 
-从 GitHub 安装，`<owner>` 为仓库所在的账号或组织：
+从 GitHub 安装：
 
 ```bash
-claude plugin install session-stats --marketplace <owner>/claude-session-stats
+claude plugin install session-stats --marketplace xumetide-dev/claude-session-stats
 ```
 
 在会话中安装：
 
 ```
-/plugin install session-stats --marketplace <owner>/claude-session-stats
+/plugin install session-stats --marketplace xumetide-dev/claude-session-stats
 ```
 
 从本地目录安装，路径为本仓库的克隆目录：

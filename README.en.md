@@ -65,8 +65,8 @@ To hide the band, use Claude Code's built-in `[-]` control (ctrl+x ctrl+a).
 | Speed | `速度` | Output tokens after the first token (including thinking), summed over requests, divided by the summed time between each request's first and last token |
 | TTFT | `TTFT` | Time from sending a request to the start of the response, averaged over requests |
 | Runtime | `时长` | From session start to the end of the main conversation's last turn; counts up to now while the main conversation runs and stops while it is idle |
-| Work time | `耗时` | Sum of the durations of the main conversation's turns |
-| Tool time | `工具` | Sum of the durations of tool calls; parallel calls are timed separately, so the total can exceed the work time |
+| Work time | `耗时` | Sum of the durations of the main conversation's turns, including time spent waiting for permission prompts |
+| Tool time | `工具` | Sum of the time from each tool call to its result, including time spent waiting for permission prompts; parallel calls are timed separately, so the total can exceed the work time |
 | Rate limits | `5小时` / `7天` | Percentage used and reset time of the 5-hour and 7-day windows |
 | Cost | `花费` | Matches `/cost` |
 
@@ -87,24 +87,27 @@ Calculation rules:
 - On the panel, a rate limit turns orange when the share of quota used exceeds the
   share of the window elapsed, and red when the quota is used up. The terminal
   colors by percentage used: orange from 80%, red at 100%.
-- Speed, TTFT, and cost history start recording when the plugin loads. `/clear`
-  resets the counters.
+- Session tokens, compactions, work time, tool calls, speed, TTFT, and sub-agent
+  totals are counted by the plugin, starting when it loads in the current
+  process. `/reload-plugins` keeps them; a session resumed with `--resume`
+  starts them from 0. Cost, prompt count, context usage, and rate limits are
+  Claude Code's own readings and cover the whole session. The cost chart starts
+  recording when the plugin loads. `/clear` resets the counters.
 
 ## Installation
 
 Tested on Claude Code 2.1.309.
 
-Install from GitHub, where `<owner>` is the account or organization that hosts the
-repository:
+Install from GitHub:
 
 ```bash
-claude plugin install session-stats --marketplace <owner>/claude-session-stats
+claude plugin install session-stats --marketplace xumetide-dev/claude-session-stats
 ```
 
 Install from within a session:
 
 ```
-/plugin install session-stats --marketplace <owner>/claude-session-stats
+/plugin install session-stats --marketplace xumetide-dev/claude-session-stats
 ```
 
 Install from a local directory, where the path is your clone of this repository:
