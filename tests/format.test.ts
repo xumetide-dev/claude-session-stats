@@ -88,10 +88,10 @@ describe('累加规则', () => {
     // 两次请求：201 token / 1 秒（首 token 之后 200 个，200 tok/s）与
     // 301 token / 3 秒（100 tok/s）。
     const first = addStreamTiming(EMPTY_STATS, {
-      outputTokens: 201, ttftMs: 40, decodeMs: 1_000,
+      outputTokens: 201, ttftMs: 40, decodeMs: 1_000, hasThinking: false,
     })
     const both = addStreamTiming(first, {
-      outputTokens: 301, ttftMs: 100, decodeMs: 3_000,
+      outputTokens: 301, ttftMs: 100, decodeMs: 3_000, hasThinking: false,
     })
     // 500 / 4 秒 = 125，而两次速度的平均是 150。
     expect(outputSpeed(both)).toBe(125)
@@ -100,25 +100,25 @@ describe('累加规则', () => {
   test('首末 token 相隔不足 1 秒的请求不计速度，总速度与柱子都没有它；TTFT 照记', async () => {
     // 0.95 秒到 190 个 token：一批 token 一起到达时的离群值（200 tok/s）。
     const short = addStreamTiming(EMPTY_STATS, {
-      outputTokens: 191, ttftMs: 100, decodeMs: 950,
+      outputTokens: 191, ttftMs: 100, decodeMs: 950, hasThinking: false,
     })
     expect(short.decodedTokens).toBe(0)
     expect(short.decodeMs).toBe(0)
     expect(outputSpeed(short)).toBeNull()
     expect(short.recentRequests).toEqual([{ speed: null, ttftMs: 100 }])
     const long = addStreamTiming(short, {
-      outputTokens: 301, ttftMs: 800, decodeMs: 3_000,
+      outputTokens: 301, ttftMs: 800, decodeMs: 3_000, hasThinking: false,
     })
     expect(long.recentRequests[1]).toEqual({ speed: 100, ttftMs: 800 })
     expect(outputSpeed(long)).toBe(100)
     expect(long.firstTokenCount).toBe(2)
   })
 
-  test('等首块比首末 token 之间还久的请求不计速度，TTFT 照记', async () => {
+  test('有思考、等首块又比首末 token 之间还久的请求不计速度，TTFT 照记', async () => {
     // 实测的离群值：响应开始的块晚到思考结束后，9 秒 TTFT 里藏着思考，1.4 秒的
     // 窗口只剩可见内容，1170 个 token（含思考）算出 835 tok/s。
     const late = addStreamTiming(EMPTY_STATS, {
-      outputTokens: 1_170, ttftMs: 9_000, decodeMs: 1_400,
+      outputTokens: 1_170, ttftMs: 9_000, decodeMs: 1_400, hasThinking: true,
     })
     expect(late.decodedTokens).toBe(0)
     expect(outputSpeed(late)).toBeNull()
@@ -126,15 +126,24 @@ describe('累加规则', () => {
     expect(late.firstTokenWaitMs).toBe(9_000)
     // TTFT 与窗口一样长时照计：即使整段 TTFT 都在生成，速度至多偏高一倍。
     const even = addStreamTiming(late, {
-      outputTokens: 201, ttftMs: 2_000, decodeMs: 2_000,
+      outputTokens: 201, ttftMs: 2_000, decodeMs: 2_000, hasThinking: true,
     })
     expect(even.recentRequests[1]).toEqual({ speed: 100, ttftMs: 2_000 })
     expect(outputSpeed(even)).toBe(100)
   })
 
+  test('没有思考的请求，TTFT 比窗口长也计速度：TTFT 里藏不了输出', async () => {
+    // 上下文大时的短请求：2.4 秒 TTFT 之后 1.5 秒输出 151 个 token（100 tok/s）。
+    const short = addStreamTiming(EMPTY_STATS, {
+      outputTokens: 151, ttftMs: 2_400, decodeMs: 1_500, hasThinking: false,
+    })
+    expect(short.recentRequests).toEqual([{ speed: 100, ttftMs: 2_400 }])
+    expect(outputSpeed(short)).toBe(100)
+  })
+
   test('首末 token 同时到达的请求只计 TTFT，不计入速度', async () => {
     const instant = addStreamTiming(EMPTY_STATS, {
-      outputTokens: 40, ttftMs: 900, decodeMs: 0,
+      outputTokens: 40, ttftMs: 900, decodeMs: 0, hasThinking: false,
     })
     expect(instant.decodedTokens).toBe(0)
     expect(outputSpeed(instant)).toBeNull()
@@ -170,7 +179,7 @@ describe('累加规则', () => {
       recentRequests: [{ speed: 312, ttftMs: 300 }],
     }
     const { timingVersion, ...unversioned } = stale
-    const older = [{ ...stale, timingVersion: 1 }, { ...stale, timingVersion: 2 }]
+    const older = [1, 2, 3].map(timingVersion => ({ ...stale, timingVersion }))
     for (const stored of [...older, unversioned]) {
       const migrated = backfillStats(stored as SessionStats)
       expect(migrated.timingVersion).toBe(TIMING_VERSION)

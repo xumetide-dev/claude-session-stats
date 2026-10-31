@@ -22,13 +22,15 @@ describe('首 token 与末 token', () => {
     expect(times.firstAt).toBe(1_134)
     expect(times.lastAt).toBe(14_416)
     expect(toStreamTiming(times, 0, 1_284)).toEqual({
-      outputTokens: 1_284, ttftMs: 1_134, decodeMs: 13_282,
+      outputTokens: 1_284, ttftMs: 1_134, decodeMs: 13_282, hasThinking: true,
     })
   })
 
   test('第一个块就是内容块时，首 token 是它', async () => {
     const times = timesOf([[500, 'text'], [900, 'text'], [1_000, 'stop']])
     expect(times).toMatchObject({ firstAt: 500, lastAt: 900 })
+    // 没有思考块：输出全是收到的内容。
+    expect(toStreamTiming(times, 0, 3)?.hasThinking).toBe(false)
   })
 
   test('首 token 之后的 engine 块不改首 token', async () => {
@@ -46,5 +48,5 @@ describe('首 token 与末 token', () => {
 
 test('时钟往回拨时 TTFT 与首末 token 间隔按 0 计，不出负数', async () => {
   const timing = toStreamTiming({ firstAt: 900, lastAt: 800 }, 1000, 50)
-  expect(timing).toEqual({ outputTokens: 50, ttftMs: 0, decodeMs: 0 })
+  expect(timing).toEqual({ outputTokens: 50, ttftMs: 0, decodeMs: 0, hasThinking: false })
 })

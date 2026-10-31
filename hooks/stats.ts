@@ -8,8 +8,9 @@ import type { CostPoint, RequestSample, SessionStats } from '../types'
 // 速度与 TTFT 的计时口径版本，口径改了就加一：重载后旧口径的合计与样本整条清掉，
 // 不与新的混算。1：首 token 取思考块的开始，不足 0.5 秒的请求计入总速度；
 // 2：首 token 取响应的第一个块（见 token-times.ts），不足 1 秒的请求不计速度；
-// 3：另外等首块比首末 token 之间还久的请求也不计速度（见 isSpeedWindowTrusted）。
-export const TIMING_VERSION = 3
+// 3：另外等首块比首末 token 之间还久的请求也不计速度；4：这一条只用于有思考的
+// 请求（见 isSpeedWindowTrusted）。
+export const TIMING_VERSION = 4
 
 export const EMPTY_STATS: SessionStats = {
   sessionId: null,
@@ -46,7 +47,7 @@ const MS_PER_SECOND = 1000
 
 /**
  * 首末 token 之间的窗口能不能代表这次请求的生成：窗口不足 MIN_SPEED_WINDOW_MS，
- * 或等首块（TTFT）比窗口还久时不能。
+ * 或请求里有思考、等首块（TTFT）又比窗口还久时不能。
  *
  * 思考不显示时，output_tokens 含着收不到的思考 token，速度要靠窗口把思考的时间也
  * 框进去。响应开始的块偶尔晚到思考结束之后才到，这时思考的时间落在 TTFT 里，窗口
@@ -56,9 +57,18 @@ const MS_PER_SECOND = 1000
  * 450 tok/s。插件拿不到思考 token 数，分不出 TTFT 里有多少其实在生成，只能看比例：
  * TTFT 不超过窗口时，即使整段 TTFT 都在生成，算出的速度也至多是实际的两倍；超过
  * 时偏差没有上限，不计。TTFT 照记。
+ *
+ * 没有思考的请求输出全是收得到的 token，TTFT 里藏不了输出，只看窗口长短：上下文
+ * 大时 TTFT 有一两秒，比只输出一两百 token 的短请求的窗口还长，按比例一并排除
+ * 会把大半请求挡在速度之外（实测 2026-10-30：重载后 7 次请求只剩 1 次计速度，
+ * 其中 5 次没有思考）。
  */
 function isSpeedWindowTrusted(timing: StreamTiming): boolean {
-  return timing.decodeMs >= MIN_SPEED_WINDOW_MS && timing.ttftMs <= timing.decodeMs
+  if (timing.decodeMs < MIN_SPEED_WINDOW_MS) {
+    return false
+  }
+
+  return !timing.hasThinking || timing.ttftMs <= timing.decodeMs
 }
 
 /** 一次请求计时的结果，主对话的才计入速度与 TTFT。 */
@@ -69,6 +79,8 @@ export type StreamTiming = {
   ttftMs: number
   /** 从首 token 到末 token，毫秒。 */
   decodeMs: number
+  /** 响应里有没有思考块：思考不显示时，它的 token 算在输出里却收不到。 */
+  hasThinking: boolean
 }
 
 /** 现行的计时字段：旧版本的统计里没有，按它们判断计时口径是不是旧的。 */

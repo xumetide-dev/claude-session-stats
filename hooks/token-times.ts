@@ -26,10 +26,14 @@ const CONTENT_KINDS: ReadonlySet<TurnStepChunk['kind']> = new Set([
   'thinking', 'text', 'tool', 'input',
 ])
 
-/** 响应第一个块（首 token）与最后一个内容块（末 token）的到达时刻。 */
+/**
+ * 响应第一个块（首 token）与最后一个内容块（末 token）的到达时刻，以及有没有收到
+ * 思考块（思考不显示时只有空的思考块，见 stats.ts 的 isSpeedWindowTrusted）。
+ */
 export type TokenTimes = {
   firstAt?: number
   lastAt?: number
+  hasThinking?: boolean
 }
 
 /** 一块在 now 到达后的时刻记录。 */
@@ -42,8 +46,9 @@ export function markTokenTime(
   if (!CONTENT_KINDS.has(kind)) {
     return { ...times, firstAt }
   }
+  const hasThinking = times.hasThinking === true || kind === 'thinking'
 
-  return { firstAt, lastAt: now }
+  return { firstAt, lastAt: now, hasThinking }
 }
 
 /**
@@ -64,5 +69,6 @@ export function toStreamTiming(
     outputTokens,
     ttftMs: Math.max(0, firstAt - requestedAt),
     decodeMs: Math.max(0, lastAt - firstAt),
+    hasThinking: times.hasThinking === true,
   }
 }
