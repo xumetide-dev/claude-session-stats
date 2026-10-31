@@ -38,6 +38,8 @@ export function contextPage(card: Area, { stats, grid }: ContextInput): string {
 
 // 缓存命中率的三段：低于 70% 红、70%–90% 黄、90% 以上绿。长会话里每次请求都重发
 // 同一段前缀，命中率通常在 90% 以上；两个阈值是经验值，可按需要调整。
+// 仪表是线性刻度，两处分界都在右半边，靠右端：仪表右侧让出这么宽写分界的数字。
+const GAUGE_LABEL_ROOM = 20
 const CACHE_ZONES: readonly GaugeZone[] = [
   { upTo: 0.7, color: COLORS.error },
   { upTo: 0.9, color: COLORS.caution },
@@ -74,7 +76,7 @@ export function usagePage(card: Area, { stats, readings, grid }: ContextInput): 
     caption(right, top + 88, hitRateText, {
       size: 10.5, color: cacheValueColor(hitRate), anchor: 'end',
     }) +
-    zoneGauge({ x, y: top + 98, w, h: 26 }, hitRate, CACHE_ZONES)
+    zoneGauge({ x, y: top + 98, w: w - GAUGE_LABEL_ROOM, h: 26 }, hitRate, CACHE_ZONES)
   )
 }
 

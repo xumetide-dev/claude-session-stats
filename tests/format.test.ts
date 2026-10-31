@@ -114,6 +114,24 @@ describe('累加规则', () => {
     expect(long.firstTokenCount).toBe(2)
   })
 
+  test('等首块比首末 token 之间还久的请求不计速度，TTFT 照记', async () => {
+    // 实测的离群值：响应开始的块晚到思考结束后，9 秒 TTFT 里藏着思考，1.4 秒的
+    // 窗口只剩可见内容，1170 个 token（含思考）算出 835 tok/s。
+    const late = addStreamTiming(EMPTY_STATS, {
+      outputTokens: 1_170, ttftMs: 9_000, decodeMs: 1_400,
+    })
+    expect(late.decodedTokens).toBe(0)
+    expect(outputSpeed(late)).toBeNull()
+    expect(late.recentRequests).toEqual([{ speed: null, ttftMs: 9_000 }])
+    expect(late.firstTokenWaitMs).toBe(9_000)
+    // TTFT 与窗口一样长时照计：即使整段 TTFT 都在生成，速度至多偏高一倍。
+    const even = addStreamTiming(late, {
+      outputTokens: 201, ttftMs: 2_000, decodeMs: 2_000,
+    })
+    expect(even.recentRequests[1]).toEqual({ speed: 100, ttftMs: 2_000 })
+    expect(outputSpeed(even)).toBe(100)
+  })
+
   test('首末 token 同时到达的请求只计 TTFT，不计入速度', async () => {
     const instant = addStreamTiming(EMPTY_STATS, {
       outputTokens: 40, ttftMs: 900, decodeMs: 0,
@@ -152,7 +170,8 @@ describe('累加规则', () => {
       recentRequests: [{ speed: 312, ttftMs: 300 }],
     }
     const { timingVersion, ...unversioned } = stale
-    for (const stored of [{ ...stale, timingVersion: 1 }, unversioned]) {
+    const older = [{ ...stale, timingVersion: 1 }, { ...stale, timingVersion: 2 }]
+    for (const stored of [...older, unversioned]) {
       const migrated = backfillStats(stored as SessionStats)
       expect(migrated.timingVersion).toBe(TIMING_VERSION)
       expect(migrated.recentRequests).toEqual([])
@@ -273,7 +292,7 @@ describe('上下文格子与面板', () => {
     expect(paceTone(50, null)).toBe(undefined)
   })
 
-  test('扇形仪表：三段等角度，指针在段内按取值换算角度，所在段不透明', async () => {
+  test('扇形仪表：线性刻度，指针的方向角与取值成比例，所在段不透明', async () => {
     const zones = [
       { upTo: 0.7, color: '#f00' },
       { upTo: 0.9, color: '#ff0' },
@@ -281,14 +300,27 @@ describe('上下文格子与面板', () => {
     ]
     // 方框 132×33：圆心 (66, 33)，横半径 63、竖半径 30，指针长 0.8 倍半径。
     const area = { x: 0, y: 0, w: 132, h: 33 }
-    // 0.8 在黄段正中，正好朝上；1 朝正右；0 朝正左。
-    const yellow = zoneGauge(area, 0.8, zones)
-    expect(yellow).toContain('x1="66" y1="33" x2="66" y2="9"')
+    // 0.5 正好朝上；1 朝正右；0 朝正左。
+    expect(zoneGauge(area, 0.5, zones)).toContain('x1="66" y1="33" x2="66" y2="9"')
+    expect(zoneGauge(area, 1, zones)).toContain('x2="116.4" y2="33"')
+    expect(zoneGauge(area, 0, zones)).toContain('x2="15.6" y2="33"')
+    // 扁的椭圆上指针按方向角画：74% 在正上方偏右 46.8°（180° × 26%），不是按参数
+    // 角画出的偏左；各处都与取值成比例。
+    const needleDegrees = (svg: string) => {
+      const tip = /x2="([\d.]+)" y2="([\d.]+)"/.exec(svg)
+      const [x, y] = [Number(tip?.[1]), Number(tip?.[2])]
+
+      return (Math.atan2(33 - y, x - 66) * 180) / Math.PI
+    }
+    for (const value of [0.25, 0.7, 0.74, 0.9, 0.95]) {
+      const degrees = needleDegrees(zoneGauge(area, value, zones))
+      expect(Math.abs(degrees - 180 * (1 - value))).toBeLessThan(0.5)
+    }
+    // 74% 落在黄段：只有黄段不透明。
+    const yellow = zoneGauge(area, 0.74, zones)
     expect(yellow.split('opacity="1"').length - 1).toBe(1)
     expect(yellow.split('opacity="0.35"').length - 1).toBe(2)
     expect(yellow).toContain('stroke="#ff0" stroke-width="6" opacity="1"')
-    expect(zoneGauge(area, 1, zones)).toContain('x2="116.4" y2="33"')
-    expect(zoneGauge(area, 0, zones)).toContain('x2="15.6" y2="33"')
     // 分界写在弧外侧；没有读数时不画指针，三段都调暗。
     const empty = zoneGauge(area, null, zones)
     expect(empty).toContain('>70%<')

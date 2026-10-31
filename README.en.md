@@ -77,6 +77,13 @@ Calculation rules:
 - Requests whose first and last tokens are less than 1 second apart count toward
   TTFT but not speed. The tokens of such requests often arrive in a single batch,
   which makes the computed speed unrepresentative.
+- Requests whose TTFT is longer than the time between their first and last tokens
+  also count toward TTFT only. When thinking is not displayed, output tokens
+  include the thinking, and the start of the response occasionally arrives only
+  after the thinking ends. The thinking time then falls inside TTFT, and dividing by
+  the first-to-last-token time alone gives hundreds to thousands of tok/s.
+- The hit rate gauge (`命中率`) has a linear scale: 0 at the left end, 100% at the
+  right end, split into red, yellow, and green zones at 70% and 90%.
 - For a resumed session, runtime starts from the session's first launch. If the
   session is already idle when the plugin loads, runtime runs up to the load time
   and is corrected when the next main conversation turn ends.

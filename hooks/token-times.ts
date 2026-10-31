@@ -17,7 +17,9 @@ import type { StreamTiming } from './stats'
 // 末 token 取最后一个内容块：其后的 stop 块要再等 0.1 到 1.2 秒，这段与输出多少
 // 无关，不是生成。
 // 也有整段内容在响应开始后 20 毫秒内一起到达的（123 token，算出来 5810 tok/s），
-// 这类窗口过短的请求由 stats.ts 的 MIN_SPEED_WINDOW_MS 排除在速度之外。
+// 这类窗口过短的请求由 stats.ts 的 MIN_SPEED_WINDOW_MS 排除在速度之外。响应开始
+// 的块晚到思考结束之后的请求，窗口漏掉了思考，由 stats.ts 的 isSpeedWindowTrusted
+// 按 TTFT 与窗口的比例排除。
 
 /** 生成内容的块：模型产出的 token 在这几种块里到达。 */
 const CONTENT_KINDS: ReadonlySet<TurnStepChunk['kind']> = new Set([

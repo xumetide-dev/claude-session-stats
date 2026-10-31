@@ -17,11 +17,14 @@ const NEEDLE_REACH = 0.8
 type FanGeometry = { cx: number; cy: number; rx: number; ry: number }
 
 /**
- * 扁的扇形仪表：上半个椭圆，几段等角度的色段从左到右排开，一根指针从圆心指向
- * 当前值，色段之间的分界写在弧的外侧。各段角度一样，取值范围却可以不同
- * （如 0–70%、70–90%、90–100%），段内按取值线性换算角度，所以要靠分界的数字
- * 读刻度。area 是弧本身占的方框（含线宽），分界的数字画在方框上方。
- * ratio 为 null 时不画指针。
+ * 扁的扇形仪表：上半个椭圆，刻度从左端的 0 线性走到右端的 100%，一根指针从圆心
+ * 指向当前值；色段按各自的取值范围占角度（如 0–70%、70–90%、90–100% 占 126°、
+ * 36°、18°），分界的数字写在弧的外侧。area 是弧本身占的方框（含线宽），分界的
+ * 数字画在方框上方。ratio 为 null 时不画指针。
+ *
+ * 角度都是从圆心看过去的方向角，不是椭圆的参数角：扁的椭圆上两者不同（宽是高的
+ * 两倍时，参数角 108° 的点在方向角 123° 上），按参数角画，指针的倾斜就和取值对
+ * 不上。
  */
 export function zoneGauge(
   area: Area,
@@ -36,33 +39,40 @@ export function zoneGauge(
   }
   const value = ratio === null ? null : clampRatio(ratio)
   const activeIndex = value === null ? -1 : zoneIndexOf(zones, value)
-  const zoneDegrees = 180 / zones.length
   const arcs = zones.map((zone, index) => {
-    const from = 180 - index * zoneDegrees - ZONE_GAP_DEGREES / 2
-    const to = 180 - (index + 1) * zoneDegrees + ZONE_GAP_DEGREES / 2
+    const lower = index === 0 ? 0 : zones[index - 1]?.upTo ?? 0
+    const from = valueAngle(lower) - ZONE_GAP_DEGREES / 2
+    const to = valueAngle(zone.upTo) + ZONE_GAP_DEGREES / 2
     const opacity = index === activeIndex ? 1 : INACTIVE_ZONE_OPACITY
 
     return fanArc(fan, from, to, zone.color, opacity)
   })
-  const labels = zones.slice(0, -1).map((zone, index) =>
-    boundaryLabel(fan, 180 - (index + 1) * zoneDegrees, zone.upTo),
+  const labels = zones.slice(0, -1).map(zone =>
+    boundaryLabel(fan, valueAngle(zone.upTo), zone.upTo),
   )
-  const pointer = value === null ? '' : needle(fan, zoneAngle(zones, value))
+  const pointer = value === null ? '' : needle(fan, valueAngle(value))
 
   return arcs.join('') + labels.join('') + pointer
 }
 
-/** 椭圆上某个角度（0° 在右、90° 在上、180° 在左）的点。 */
+/**
+ * 椭圆上某个方向角（0° 在右、90° 在上、180° 在左）的点：从圆心沿这个方向出去，
+ * 与椭圆的交点；reach 小于 1 时停在半路。
+ */
 function fanPoint(
   fan: FanGeometry,
   degrees: number,
   reach = 1,
 ): { x: number; y: number } {
   const radians = (degrees * Math.PI) / 180
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  // 椭圆的极坐标方程：x²/rx² + y²/ry² = 1 上方向角为 θ 的点离圆心的距离。
+  const radius = (fan.rx * fan.ry) / Math.hypot(fan.ry * cos, fan.rx * sin)
 
   return {
-    x: fan.cx + reach * fan.rx * Math.cos(radians),
-    y: fan.cy - reach * fan.ry * Math.sin(radians),
+    x: fan.cx + reach * radius * cos,
+    y: fan.cy - reach * radius * sin,
   }
 }
 
@@ -88,7 +98,7 @@ function fanArc(
 
 /** 两段之间的分界数字，写在弧外侧。 */
 function boundaryLabel(fan: FanGeometry, degrees: number, upTo: number): string {
-  const outside = { ...fan, rx: fan.rx + 12, ry: fan.ry + 9 }
+  const outside = { ...fan, rx: fan.rx + 14, ry: fan.ry + 9 }
   const point = fanPoint(outside, degrees)
   const text = `${Math.round(upTo * 100)}%`
 
@@ -102,15 +112,9 @@ function zoneIndexOf(zones: readonly GaugeZone[], value: number): number {
   return index === -1 ? zones.length - 1 : index
 }
 
-/** 值对应的指针角度：先找段，再在段内按取值线性换算。180° 是最左，0° 是最右。 */
-function zoneAngle(zones: readonly GaugeZone[], value: number): number {
-  const index = zoneIndexOf(zones, value)
-  const lower = index === 0 ? 0 : zones[index - 1]?.upTo ?? 0
-  const upper = zones[index]?.upTo ?? 1
-  const fraction = upper > lower ? (value - lower) / (upper - lower) : 1
-  const position = (index + fraction) / zones.length
-
-  return 180 * (1 - position)
+/** 取值（0 到 1）对应的方向角：线性刻度，0 在最左（180°），1 在最右（0°）。 */
+function valueAngle(value: number): number {
+  return 180 * (1 - value)
 }
 
 /** 指针：从圆心指向 degrees 方向，圆心画一个轴点。 */

@@ -7,8 +7,9 @@ import type { CostPoint, RequestSample, SessionStats } from '../types'
 
 // 速度与 TTFT 的计时口径版本，口径改了就加一：重载后旧口径的合计与样本整条清掉，
 // 不与新的混算。1：首 token 取思考块的开始，不足 0.5 秒的请求计入总速度；
-// 2：首 token 取响应的第一个块（见 token-times.ts），不足 1 秒的请求不计速度。
-export const TIMING_VERSION = 2
+// 2：首 token 取响应的第一个块（见 token-times.ts），不足 1 秒的请求不计速度；
+// 3：另外等首块比首末 token 之间还久的请求也不计速度（见 isSpeedWindowTrusted）。
+export const TIMING_VERSION = 3
 
 export const EMPTY_STATS: SessionStats = {
   sessionId: null,
@@ -42,6 +43,23 @@ const MAX_COST_POINTS = 120
 // 102–143 tok/s，与长请求同一范围；不足 1 秒的 3 次是 171、5810 tok/s 这类离群值。
 const MIN_SPEED_WINDOW_MS = 1000
 const MS_PER_SECOND = 1000
+
+/**
+ * 首末 token 之间的窗口能不能代表这次请求的生成：窗口不足 MIN_SPEED_WINDOW_MS，
+ * 或等首块（TTFT）比窗口还久时不能。
+ *
+ * 思考不显示时，output_tokens 含着收不到的思考 token，速度要靠窗口把思考的时间也
+ * 框进去。响应开始的块偶尔晚到思考结束之后才到，这时思考的时间落在 TTFT 里，窗口
+ * 只剩可见内容那一段，几百个思考 token 挤进一两秒，算出 500 到 2000 tok/s。实测
+ * （2026-10-30）：面板上 833 tok/s 的那次请求，TTFT 是 9.0 秒，其余请求在 1 秒
+ * 上下；同期转录里这类请求的思考 token 占输出的六到九成，扣掉后都回到 130 到
+ * 450 tok/s。插件拿不到思考 token 数，分不出 TTFT 里有多少其实在生成，只能看比例：
+ * TTFT 不超过窗口时，即使整段 TTFT 都在生成，算出的速度也至多是实际的两倍；超过
+ * 时偏差没有上限，不计。TTFT 照记。
+ */
+function isSpeedWindowTrusted(timing: StreamTiming): boolean {
+  return timing.decodeMs >= MIN_SPEED_WINDOW_MS && timing.ttftMs <= timing.decodeMs
+}
 
 /** 一次请求计时的结果，主对话的才计入速度与 TTFT。 */
 export type StreamTiming = {
@@ -156,13 +174,13 @@ export function addAgentTokens(stats: SessionStats, usage: ModelUsage): SessionS
  *
  * 速度按通行的单请求口径（vLLM、AIPerf、Artificial Analysis）：首 token 之后的
  * 输出 token 数除以首末 token 之间的时长。首 token 的到达是计时起点，不算在窗口里
- * 生成的 token 内。首末 token 相隔不足 MIN_SPEED_WINDOW_MS 的请求只计 TTFT。
+ * 生成的 token 内。窗口代表不了生成的请求只计 TTFT（见 isSpeedWindowTrusted）。
  */
 export function addStreamTiming(
   stats: SessionStats,
   timing: StreamTiming,
 ): SessionStats {
-  const isSpeedCounted = timing.decodeMs >= MIN_SPEED_WINDOW_MS
+  const isSpeedCounted = isSpeedWindowTrusted(timing)
   const decodedTokens = isSpeedCounted ? Math.max(0, timing.outputTokens - 1) : 0
   const decodeMs = isSpeedCounted ? timing.decodeMs : 0
   const sample: RequestSample = {
