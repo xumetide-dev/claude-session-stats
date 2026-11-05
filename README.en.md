@@ -95,6 +95,14 @@ Calculation rules:
   it has rate-limit readings of its own: the file does not record the account, so
   accounts separated by `CLAUDE_CONFIG_DIR` each have their own file. A window with
   no reading, or one past its reset time, shows 0%.
+- Within one window, "most recent" is decided by when a reading was taken, not by
+  how much is used: after a plan upgrade the used percentage drops while the reset
+  time stays the same, and the new reading has to replace the pre-upgrade one. A
+  session records the time when it receives a response and its reading changes. A
+  reading that was already present when the plugin loaded has no known time, so it
+  does not override a timestamped reading in the file until that session receives
+  its next response. Contents of the file written by older versions, which have no
+  timestamps, are ignored.
 - On the panel, a rate limit turns orange when the share of quota used exceeds the
   share of the window elapsed, and red when the quota is used up. The terminal
   colors by percentage used: orange from 80%, red at 100%.
@@ -152,6 +160,7 @@ directly, so after changing the code, also run `/reload-plugins`.
 | `types/index.d.ts` | Type contract for `$.state` |
 | `tests/` | Tests |
 | `scripts/readme-images.mts` | Renders the panel screenshots in this document from sample data |
+| `CHANGELOG.md` | Change log per version, in Chinese; add an entry under "未发布" (Unreleased) for each fix or change |
 
 Type checking requires a global TypeScript installation. From the repository root,
 run the type check, tests, and manifest validation:

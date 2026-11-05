@@ -85,6 +85,17 @@ export type RateLimitReading = {
   percentUsed: number
   /** 重置时刻，毫秒时间戳；引擎没给时为 null。 */
   resetsAt: number | null
+  /**
+   * 读到这份读数的时刻，毫秒时间戳；只用来在跨会话共享时比新旧。引擎给的读数
+   * 没有它；0 表示不知道（mod 加载时就已有的读数）。
+   */
+  observedAt?: number
+}
+
+/** 本会话两个限额窗口的读数，带各自的观测时刻；记下它才能看出读数何时变过。 */
+export type OwnLimits = {
+  fiveHour: RateLimitReading | null
+  sevenDay: RateLimitReading | null
 }
 
 /**
@@ -146,6 +157,8 @@ declare module 'claude-code' {
       stats: SessionStats
       readings: EngineReadings
       grid: ContextGrid | null
+      /** 本会话的限额读数与它们的观测时刻；null 表示还没读过。 */
+      ownLimits: OwnLimits | null
       /** 桌面端面板是否收起成一行摘要；另存一份在 $.store，新会话沿用上次的状态。 */
       isCollapsed: boolean
     }

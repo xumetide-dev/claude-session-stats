@@ -1,6 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 
-import type { EngineReadings, RateLimitReading } from '../types'
+import type { EngineReadings, OwnLimits, RateLimitReading } from '../types'
 
 // 5 小时与 7 天限额是账号级的，引擎给的却是本会话最近一次响应带回的读数：闲置的会话
 // 一直停在它最后一次请求时的数。各会话经一个共享文件交换读数，每个窗口显示所有会话
@@ -12,6 +12,11 @@ import type { EngineReadings, RateLimitReading } from '../types'
 // 文件不记账号（插件读不到会话登录的是哪个账号），隔离靠两条：文件放在 Claude Code
 // 的配置目录下，用 CLAUDE_CONFIG_DIR 分开登录的各个账号各有一份；本会话自己没有
 // 限额读数时（API key 计费，或还没收到过响应）不借用文件里的。
+//
+// 同一窗口内谁新谁旧，看读数是什么时候读到的（observedAt），不看用量大小。用量在
+// 窗口内通常只增不减，但升级套餐后额度变大，已用比例会掉下来而重置时刻不变；
+// 若仍取用得多的那份，升级前的旧读数会永远压住新读数。本会话读数的观测时刻由
+// stampOwnLimits 记下：引擎只在收到响应时才给出新读数，所以读数变了就是此刻读到的。
 
 /** 共享文件的内容：两个窗口各自最新的读数，没有时为 null。 */
 export type SharedLimits = {
@@ -51,7 +56,9 @@ let unreadableStreak = 0
 /**
  * 一个窗口取本会话与共享文件中较新的读数。已过重置时刻的读数不参与；共享的读数
  * 一定带重置时刻（没有重置时刻的无法判断属于哪个窗口，不写进共享文件）。
- * 同一窗口内用量只增不减，用得多的那份较新；不同窗口取重置时刻晚的那份。
+ * 不同窗口取重置时刻晚的那份；同一窗口内取观测时刻晚的那份（升级套餐后用量会
+ * 回落，不能再按用量大小比）。观测时刻相同或都不知道（0）时没有依据，退回
+ * 用量的比较：窗口内用量通常只增不减，用得多的那份较新。
  */
 export function newerLimit(
   own: RateLimitReading | null,
@@ -70,8 +77,51 @@ export function newerLimit(
       return gap > 0 ? own : shared
     }
   }
+  const ownObservedAt = own.observedAt ?? 0
+  const sharedObservedAt = shared.observedAt ?? 0
+  if (ownObservedAt !== sharedObservedAt) {
+    return ownObservedAt > sharedObservedAt ? own : shared
+  }
 
   return shared.percentUsed > own.percentUsed ? shared : own
+}
+
+/**
+ * 给本会话的限额读数标上观测时刻。previous 是上一次标过的结果：读数与上次相同就
+ * 沿用上次的时刻；变了说明刚收到响应，时刻取 now。previous 为 null（mod 刚加载）
+ * 时读数是什么时候读到的不知道，标 0：不冒充"刚读到"，免得闲置会话里的旧读数
+ * 压过其他会话的新读数。
+ */
+export function stampOwnLimits(
+  previous: OwnLimits | null,
+  own: EngineReadings,
+): OwnLimits {
+  const stamp = (
+    before: RateLimitReading | null,
+    current: RateLimitReading | null,
+  ): RateLimitReading | null => {
+    if (current === null) {
+      return null
+    }
+    if (previous === null) {
+      return { ...current, observedAt: 0 }
+    }
+    if (before !== null && isSameReading(before, current)) {
+      return { ...current, observedAt: before.observedAt ?? 0 }
+    }
+
+    return { ...current, observedAt: own.now }
+  }
+
+  return {
+    fiveHour: stamp(previous?.fiveHour ?? null, own.fiveHour),
+    sevenDay: stamp(previous?.sevenDay ?? null, own.sevenDay),
+  }
+}
+
+/** 两份读数的用量与重置时刻都相同；观测时刻不参与比较。 */
+function isSameReading(a: RateLimitReading, b: RateLimitReading): boolean {
+  return a.percentUsed === b.percentUsed && a.resetsAt === b.resetsAt
 }
 
 /** 本会话有没有自己的限额读数：引擎报过任一窗口即算，过没过重置时刻都算。 */
@@ -99,16 +149,25 @@ export function mergeSharedLimits(
   }
 }
 
-/** 要写进共享文件的内容：只留带重置时刻、尚未重置的读数。 */
+/**
+ * 要写进共享文件的内容：只留带重置时刻、尚未重置的读数，并带上观测时刻
+ * （不知道时写 0）。
+ */
 export function toSharedLimits(readings: EngineReadings): SharedLimits {
   const { now, fiveHour, sevenDay } = readings
-  const sharable = (limit: RateLimitReading | null) =>
-    limit !== null && limit.resetsAt !== null && limit.resetsAt > now ? limit : null
+  const sharable = (limit: RateLimitReading | null): RateLimitReading | null =>
+    limit !== null && limit.resetsAt !== null && limit.resetsAt > now
+      ? { ...limit, observedAt: limit.observedAt ?? 0 }
+      : null
 
   return { fiveHour: sharable(fiveHour), sevenDay: sharable(sevenDay) }
 }
 
-/** 解析共享文件；内容不是预期的形状时为 null，形状不对的单个窗口为 null。 */
+/**
+ * 解析共享文件；内容不是预期的形状时为 null，形状不对的单个窗口为 null。
+ * 没有观测时刻的窗口是旧版写的，无从比新旧，也当作没有：否则升级套餐前留下的
+ * 旧读数会一直压住新读数。
+ */
 export function parseSharedLimits(text: string): SharedLimits | null {
   let data: unknown
   try {
@@ -217,10 +276,14 @@ function limitOf(value: unknown): RateLimitReading | null {
   if (typeof value !== 'object' || value === null) {
     return null
   }
-  const { percentUsed, resetsAt } = value as Record<string, unknown>
-  if (typeof percentUsed !== 'number' || typeof resetsAt !== 'number') {
+  const { percentUsed, resetsAt, observedAt } = value as Record<string, unknown>
+  const isShaped =
+    typeof percentUsed === 'number' &&
+    typeof resetsAt === 'number' &&
+    typeof observedAt === 'number'
+  if (!isShaped) {
     return null
   }
 
-  return { percentUsed, resetsAt }
+  return { percentUsed, resetsAt, observedAt }
 }

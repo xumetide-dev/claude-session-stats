@@ -8,12 +8,17 @@ import type {
   TurnStepResult,
 } from 'claude-code'
 
-import type { ContextGrid, EngineReadings, SessionStats } from '../types'
+import type { ContextGrid, EngineReadings, OwnLimits, SessionStats } from '../types'
 import { registerBand, restoreCollapsed } from './band'
 import { rowsToText, toRows } from './format'
 import { carouselPage } from './panel/panel'
 import { EMPTY_READINGS, toContextGrid, toReadings } from './readings'
-import { mergeSharedLimits, publishLimits, readSharedLimits } from './shared-limits'
+import {
+  mergeSharedLimits,
+  publishLimits,
+  readSharedLimits,
+  stampOwnLimits,
+} from './shared-limits'
 import {
   EMPTY_STATS,
   addAgentToolCall,
@@ -51,6 +56,12 @@ const grid = atom(
   { plugin: 'session-stats', key: 'grid' } as const,
   null as ContextGrid | null,
 )
+// 本会话的限额读数与观测时刻（stampOwnLimits）：与上次比较才知道读数何时变过，
+// 跨会话共享时据此比新旧。
+const ownLimits = atom(
+  { plugin: 'session-stats', key: 'ownLimits' } as const,
+  null as OwnLimits | null,
+)
 
 // 每秒刷新一次：主对话跑着一轮时时长与耗时按秒变化；读数来自引擎的现成查询，
 // 不发请求。显示不变时不写回读数，空闲时状态栏不每秒重画（见 isDisplayChanged）。
@@ -82,7 +93,13 @@ async function refreshReadings($: EngineInterface): Promise<void> {
     readSharedLimits($),
     $.session.id(),
   ])
-  const own = toReadings({ now, usage, agents, promptCount })
+  const raw = toReadings({ now, usage, agents, promptCount })
+  const previousLimits = await read($, ownLimits)
+  const stampedLimits = stampOwnLimits(previousLimits, raw)
+  if (JSON.stringify(stampedLimits) !== JSON.stringify(previousLimits)) {
+    await update($, ownLimits, () => stampedLimits)
+  }
+  const own = { ...raw, ...stampedLimits }
   const latest = mergeSharedLimits(own, sharedFile)
   publishLimits($, latest, sharedFile)
   const currentStats = await syncStats($, {
