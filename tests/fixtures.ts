@@ -13,7 +13,8 @@ import { SHARED_LIMITS_FILE } from '../hooks/shared-limits'
 
 // 测试共用的引擎应答与读取工具。测试里 `on` 注册的钩子垫在插件下面，代替引擎作答。
 
-export const START = 1_000_000
+// 会话开始的时刻：取 60 秒的整数倍，正是三页轮播第一页的开头（每页 20 秒）。
+export const START = 1_200_000
 export const HOUR_MS = 3_600_000
 /** 测试里的 HOME 与跨会话共享限额文件的路径；文件只在内存表里，不碰真实的 HOME。 */
 export const TEST_HOME = '/home/test'
@@ -46,6 +47,8 @@ export type EngineSide = {
   costUsd: number
   agents: AgentInfo[]
   promptCount: number
+  /** 主对话的模型，$.session.model() 的回答。 */
+  model: string
   /** 状态栏的上下文读数：上下文窗口与最近一次响应的输入 token。 */
   context: { window: number; tokens: number; percent: number }
   /** /context 的结果，带 breakdown 的查询返回它。 */
@@ -145,7 +148,7 @@ export function answerEngine(
   })
   const engine: EngineSide = {
     sessionId: 'session-1',
-    rateLimits: [], costUsd: 0, agents: [], promptCount: 0,
+    rateLimits: [], costUsd: 0, agents: [], promptCount: 0, model: 'claude-opus-5-5',
     context: { window: 200_000, tokens: 12_000, percent: 6 },
     breakdown: breakdownFixture(),
   }
@@ -165,6 +168,7 @@ export function answerEngine(
   on('agent.list', () => ({ value: engine.agents }))
   on('session.turns', () => ({ value: engine.promptCount }))
   on('session.id', () => ({ value: engine.sessionId }))
+  on('session.model', () => ({ value: engine.model }))
 
   return { clock, engine, stored, files }
 }

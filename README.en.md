@@ -18,17 +18,20 @@ few lines of text. The interface text is in Chinese.
 
 ### Desktop
 
-The panel has six cards. The first two cards have two pages each and turn pages
-together every 20 seconds. The image below shows the second page:
+The panel has six cards. The first two cards have three pages each and turn pages
+together every 20 seconds; the two cards on one page cover the same subject. Page 1
+shows the main conversation and its context right now; pages 2 and 3 show totals.
+The image below shows page 1; see [panel-page-2.png](docs/images/panel-page-2.png)
+and [panel-page-3.png](docs/images/panel-page-3.png) for the others:
 
-![Desktop panel, second page](docs/images/panel-page-2.png)
+![Desktop panel, page 1](docs/images/panel-page-1.png)
 
 | Card | Content |
 | --- | --- |
-| Sub-agents (`子 agent`) / Main conversation (`主对话`) | Page 1: number of running sub-agents; total time, tokens, and tool calls across sub-agents. Page 2: whether the main conversation is running; prompt count, tool call count, and tool time |
-| Context / Session (`会话`) | Page 1: compaction count (`压缩`) and a dot grid of context composition. Page 2: session tokens, context usage, and a cache hit rate gauge |
+| Main conversation (`主对话`) / Sub-agents (`子 agent`) / Tool breakdown (`工具分布`) | Page 1: whether the main conversation is running, the model and effort level; prompt count, tool call count (`工具调用`), and tool time. Page 2: number of running sub-agents; total time, tokens, and tool calls across sub-agents. Page 3: the main conversation's top three tools by time, each with its time and call count, and failures in red |
+| Context (`上下文`) / Session (`会话`) | Page 1: context usage, a dot grid of context composition, and the compaction count (`压缩`). Pages 2 and 3: session tokens, context usage (the white tick on the bar marks the auto-compact threshold), and a cache hit rate gauge |
 | Runtime (`运行时长`) | Session runtime in hours, minutes, and seconds, marked LIVE while the main conversation runs; work time and its share of the runtime |
-| Speed (`处理速度`) / TTFT | Average output speed and average TTFT; speed bars and a TTFT line for the last 24 requests |
+| Output speed (`输出速度`) / TTFT | Average output speed and average TTFT; speed bars and a TTFT line for the last 24 requests; failure counts in red above the chart when turns failed on rate limits or overload |
 | Rate limits (`5小时` / `7天`) | Quota used and time elapsed in the 5-hour and 7-day windows; light gray hatching on the quota bar shows the projected usage at reset at the current pace |
 | Cost (`花费`) | Current cost and a step line of cost over time |
 
@@ -67,6 +70,9 @@ To hide the band, use Claude Code's built-in `[-]` control (ctrl+x ctrl+a).
 | Runtime | `时长` | From session start to the end of the main conversation's last turn; counts up to now while the main conversation runs and stops while it is idle |
 | Work time | `耗时` | Sum of the durations of the main conversation's turns, including time spent waiting for permission prompts |
 | Tool time | `工具` | Sum of the time from each tool call to its result, including time spent waiting for permission prompts; parallel calls are timed separately, so the total can exceed the work time |
+| Tool breakdown | `工具分布` | The main conversation's tool calls split by tool name: calls, time, and failures; a tool error or a denied call counts as a failure |
+| Model and effort | — | The model as `/model` shows it; effort is the thinking effort level of the latest main conversation request, not shown for models without effort |
+| Rate limit / overload failures | `限流` / `过载` | Turns that failed on a rate limit (`rate_limit`) or overload (`overloaded`) after Claude Code's retries ran out; retries that succeed are not counted |
 | Rate limits | `5小时` / `7天` | Percentage used and reset time of the 5-hour and 7-day windows |
 | Cost | `花费` | Matches `/cost` |
 
@@ -114,8 +120,15 @@ Calculation rules:
   the 5-hour window, about 17 hours for the 7-day window), because the projection
   is unstable before then, nor for a window that has not started or has no reset
   time.
-- Session tokens, compactions, work time, tool calls, speed, TTFT, and sub-agent
-  totals are counted by the plugin, starting when it loads in the current process
+- The white tick on the context bar marks the auto-compact threshold (the threshold
+  in `/context`). It is not drawn when auto-compact is off or before the first
+  `/context` result.
+- The tool breakdown starts counting when the plugin version that adds it loads;
+  calls made before that count only toward the tool calls and tool time on the
+  main conversation page, so the two totals can differ. MCP tools are shown by tool
+  name, without the server name.
+- Session tokens, compactions, work time, tool calls, tool breakdown, rate limit and
+  overload failures, speed, TTFT, and sub-agent totals are counted by the plugin, starting when it loads in the current process
   or when the process switches to the current session. `/reload-plugins` keeps
   them; a resumed session (`--resume` or `/resume`) starts them from 0, and
   `/clear` resets them. Cost, prompt count, context usage, and rate limits are

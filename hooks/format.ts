@@ -22,6 +22,26 @@ const LIMIT_EXCEEDED_PERCENT = 100
 /** 没有读数时显示的占位符。 */
 export const NO_READING = '—'
 
+// 模型名里的家族与版本：claude-opus-5-5、Opus 5.5 都认作 Opus 5.5。版本号只认一到
+// 两位，免得把 claude-3-5-sonnet-20241022 的日期当成版本。
+const MODEL_FAMILY_VERSION =
+  /(opus|sonnet|haiku|fable)[-\s]?(\d{1,2})(?:[-.](\d{1,2}))?(?!\d)/i
+
+/**
+ * 面板上的模型名：认得出家族与版本时写成"Opus 5.5"，认不出（别名、旧式 id）
+ * 时原样返回，由面板按宽度截断。
+ */
+export function formatModelName(model: string): string {
+  const match = MODEL_FAMILY_VERSION.exec(model)
+  if (match === null) {
+    return model
+  }
+  const [, family = '', major = '', minor] = match
+  const name = family.charAt(0).toUpperCase() + family.slice(1).toLowerCase()
+
+  return minor === undefined ? `${name} ${major}` : `${name} ${major}.${minor}`
+}
+
 /** 按中文习惯写大数：9999、1.2万、6325万、1.23亿。一律向下取整，不会进位成"10000万"。 */
 export function formatCount(count: number): string {
   if (count < TEN_THOUSAND) {

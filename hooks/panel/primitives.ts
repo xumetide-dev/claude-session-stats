@@ -68,6 +68,28 @@ export function fitFontSize(text: string, maxWidth: number, baseSize: number): n
   return Math.max(MIN_FONT_SIZE, Math.floor((maxWidth / em) * 10) / 10)
 }
 
+const ELLIPSIS = '…'
+
+/**
+ * 放得进 maxWidth 的文字：放得下原样返回，放不下从末尾删字并加省略号。
+ * 连一个字加省略号都放不下时返回空串。
+ */
+export function truncateToWidth(text: string, maxWidth: number, size: number): string {
+  if (textEm(text) * size <= maxWidth) {
+    return text
+  }
+  const chars = Array.from(text)
+  while (chars.length > 0) {
+    chars.pop()
+    const candidate = chars.join('') + ELLIPSIS
+    if (textEm(candidate) * size <= maxWidth) {
+      return candidate
+    }
+  }
+
+  return ''
+}
+
 /** 一段文字。anchor 为 end 时 x 是右边缘。 */
 export function caption(
   x: number,
@@ -152,6 +174,26 @@ export function gaugeBar(
     rect(area, COLORS.track, radius) +
     forecast +
     rect({ ...area, w: fill }, color, radius)
+  )
+}
+
+// 刻度线比所标的条上下各长出这么多，压在条上也看得出来。
+const TICK_OVERHANG = 2
+
+/**
+ * 条上的一道竖直刻度，标出一个比例位置（如自动压缩的触发点）。比例超出 0 到 1
+ * 的不画：刻度落在条外就没有意义。
+ */
+export function markerTick(area: Area, ratio: number, color: string): string {
+  if (!(ratio >= 0 && ratio <= 1)) {
+    return ''
+  }
+  const x = fixed(area.x + ratio * area.w)
+
+  return (
+    `<line x1="${x}" y1="${fixed(area.y - TICK_OVERHANG)}" x2="${x}" ` +
+    `y2="${fixed(area.y + area.h + TICK_OVERHANG)}" stroke="${color}" ` +
+    `stroke-width="1.5" stroke-linecap="round"/>`
   )
 }
 

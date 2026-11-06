@@ -1,6 +1,6 @@
 import type { ContextGrid, EngineReadings, SessionStats } from '../../types'
 import { formatUsd } from '../summary'
-import { agentsPage, mainLoopPage } from './activity-pages'
+import { agentsPage, mainLoopPage, toolsPage } from './activity-pages'
 import { CARD_PADDING, bigNumber, cardFrame, pageDots } from './cards'
 import { stepChart } from './charts'
 import { contextPage, usagePage } from './context-pages'
@@ -12,8 +12,8 @@ import type { Area } from './primitives'
 import { runtimeCard, speedCard } from './time-cards'
 
 // 桌面端的图形面板：一张 960×144 的 SVG，比状态栏宽时按比例缩小。外框里六张卡片
-// 从左到右是子 agent 与主对话、上下文与缓存、运行时长、处理速度与 TTFT、限额、
-// 花费。前两张各有两页轮流显示，每页停留 20 秒。
+// 从左到右是主对话 / 子 agent / 工具分布、上下文与缓存、运行时长、输出速度与 TTFT、限额、
+// 花费。前两张各有三页轮流显示，每页停留 20 秒。
 //
 // 有分母的比例（上下文占用、缓存命中、限额）画 0 到 100% 的条形；速度、TTFT 与
 // 花费另画历史：双轴小图是最近若干次请求的速度与 TTFT，花费折线是每次变化的点，
@@ -38,17 +38,19 @@ const CARD_WIDTHS = {
 } as const
 type CardName = keyof typeof CARD_WIDTHS
 
-// 两处轮播同时换页，共用一个页码：第一张是子 agent、主对话，第二张是上下文构成、
-// 会话与缓存。两处都是两页。
-const ACTIVITY_PAGES = [agentsPage, mainLoopPage] as const
-const CONTEXT_PAGES = [contextPage, usagePage] as const
-const PAGE_COUNT = 2
+// 两处轮播同时换页，共用一个页码，同一页的两张卡片说的是同一件事：
+// 第一页是此刻的主对话与它的上下文构成；第二、三页是累计——子 agent 合计、主对话
+// 工具耗时的分布，旁边都是会话累计（token、缓存命中，含子 agent 的请求）。
+// 上下文占比每一页都显示。
+const ACTIVITY_PAGES = [mainLoopPage, agentsPage, toolsPage] as const
+const CONTEXT_PAGES = [contextPage, usagePage, usagePage] as const
+const PAGE_COUNT = ACTIVITY_PAGES.length
 const CAROUSEL_INTERVAL_MS = 20_000
 
 export function buildPanelSvg(input: PanelInput): string {
   const page = carouselPage(input.readings.now)
   const cards = cardAreas()
-  const drawActivity = ACTIVITY_PAGES[page] ?? agentsPage
+  const drawActivity = ACTIVITY_PAGES[page] ?? mainLoopPage
   const drawContext = CONTEXT_PAGES[page] ?? contextPage
   const { activity, context } = cards
   const body = [

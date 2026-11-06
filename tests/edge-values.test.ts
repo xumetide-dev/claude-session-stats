@@ -68,8 +68,12 @@ test('上下文窗口为 0、引擎没给百分比时占用当作没有读数，
   const usage = {
     startedAt: START, context: { window: 0, tokens: 1000 }, rateLimits: [],
   }
-  const readings = toReadings({ now: START, usage, agents: [], promptCount: 0 })
+  const readings = toReadings({
+    now: START, usage, agents: [], promptCount: 0, model: '',
+  })
   expect(readings.contextPercent).toBeNull()
+  // 引擎给空串时当作没读到模型。
+  expect(readings.model).toBeNull()
 })
 
 describe('限额窗口', () => {

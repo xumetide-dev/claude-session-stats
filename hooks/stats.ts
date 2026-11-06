@@ -1,6 +1,6 @@
 import type { ModelUsage } from 'claude-code'
 
-import type { CostPoint, RequestSample, SessionStats } from '../types'
+import type { CostPoint, RequestSample, SessionStats, ToolTally } from '../types'
 
 // 统计的累加规则。全部是纯函数：输入旧统计，返回新统计，由 register.tsx 经
 // `update($, atom, fn)` 写回 $.state。
@@ -26,11 +26,15 @@ export const EMPTY_STATS: SessionStats = {
   decodeMs: 0,
   firstTokenWaitMs: 0,
   firstTokenCount: 0,
+  effort: null,
   toolCalls: 0,
   toolMs: 0,
+  toolBreakdown: {},
   agentTokens: 0,
   agentWorkMs: 0,
   agentToolCalls: 0,
+  rateLimitFailures: 0,
+  overloadFailures: 0,
   recentRequests: [],
   costPoints: [],
 }
@@ -236,6 +240,19 @@ function appendThinned(points: CostPoint[], point: CostPoint): CostPoint[] {
   return thinned[thinned.length - 1] === point ? thinned : [...thinned, point]
 }
 
+/**
+ * 记下主对话这次请求的 effort 档位：引擎给的数字写成数字串，没给时为 null。
+ * 与上次相同时原样返回，调用方据此判断要不要写回。
+ */
+export function recordEffort(
+  stats: SessionStats,
+  effort: string | number | undefined,
+): SessionStats {
+  const level = effort === undefined ? null : String(effort)
+
+  return stats.effort === level ? stats : { ...stats, effort: level }
+}
+
 export function startMainTurn(stats: SessionStats, startedAt: number): SessionStats {
   return { ...stats, mainTurnStartedAt: startedAt }
 }
@@ -276,12 +293,44 @@ export function addAgentTurn(stats: SessionStats, durationMs: number): SessionSt
   return { ...stats, agentWorkMs: stats.agentWorkMs + durationMs }
 }
 
-export function addMainToolCall(stats: SessionStats, durationMs: number): SessionStats {
-  return { ...stats, toolCalls: stats.toolCalls + 1, toolMs: stats.toolMs + durationMs }
+/** 主对话一次工具调用：计入总次数与耗时，也计入这个工具自己的合计。 */
+export function addMainToolCall(
+  stats: SessionStats,
+  call: { tool: string; durationMs: number; isFailed: boolean },
+): SessionStats {
+  const { tool, durationMs, isFailed } = call
+  const before: ToolTally = stats.toolBreakdown[tool] ?? { calls: 0, ms: 0, failures: 0 }
+  const after: ToolTally = {
+    calls: before.calls + 1,
+    ms: before.ms + durationMs,
+    failures: before.failures + (isFailed ? 1 : 0),
+  }
+
+  return {
+    ...stats,
+    toolCalls: stats.toolCalls + 1,
+    toolMs: stats.toolMs + durationMs,
+    toolBreakdown: { ...stats.toolBreakdown, [tool]: after },
+  }
 }
 
 export function addAgentToolCall(stats: SessionStats): SessionStats {
   return { ...stats, agentToolCalls: stats.agentToolCalls + 1 }
+}
+
+/**
+ * 一轮因 API 错误失败结束：限流与过载分别计数，其余错误（计费、鉴权、输出超长等）
+ * 不计，原样返回，调用方据此判断要不要写回。
+ */
+export function addStopFailure(stats: SessionStats, error: string): SessionStats {
+  if (error === 'rate_limit') {
+    return { ...stats, rateLimitFailures: stats.rateLimitFailures + 1 }
+  }
+  if (error === 'overloaded') {
+    return { ...stats, overloadFailures: stats.overloadFailures + 1 }
+  }
+
+  return stats
 }
 
 export function addCompaction(stats: SessionStats): SessionStats {

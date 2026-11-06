@@ -1,4 +1,4 @@
-// 用示例数据渲染 README 里的面板截图（两页轮播各一张，2 倍分辨率 PNG），并打印同一份
+// 用示例数据渲染 README 里的面板截图（三页轮播各一张，2 倍分辨率 PNG），并打印同一份
 // 数据在终端与收起状态下的文字。数据是虚构的，不来自任何真实会话。
 //
 // 运行（需要 rsvg-convert，macOS 上由 librsvg 提供：brew install librsvg）：
@@ -40,6 +40,14 @@ const stats = {
   firstTokenCount: 10,
   toolCalls: 213,
   toolMs: 5 * MINUTE_MS + 15_000,
+  effort: 'high',
+  // 合计与上面的工具调用次数、耗时一致：213 次、5 分 15 秒。
+  toolBreakdown: {
+    Bash: { calls: 96, ms: 171_000, failures: 3 },
+    Edit: { calls: 31, ms: 62_000, failures: 1 },
+    Read: { calls: 58, ms: 41_000, failures: 0 },
+    Grep: { calls: 28, ms: 41_000, failures: 0 },
+  },
   agentTokens: 11_960_000,
   agentWorkMs: 29 * MINUTE_MS + 59_000,
   agentToolCalls: 113,
@@ -55,6 +63,7 @@ const readings = {
   now,
   sessionStartedAt: now - (42 * MINUTE_MS + 54_000),
   promptCount: 7,
+  model: 'claude-opus-5-5',
   runningAgents: 1,
   fiveHour: { percentUsed: 19, resetsAt: now + 4 * HOUR_MS + 39 * MINUTE_MS },
   sevenDay: { percentUsed: 30, resetsAt: now + 90 * HOUR_MS },
@@ -71,6 +80,8 @@ const grid = {
   usedTokens: 305_000,
   windowTokens: 527_000,
   percent: 58,
+  // 自动压缩在 88% 处触发，与格子末尾 12 格的压缩缓冲对应。
+  autoCompactTokens: 463_000,
   dots: Array.from({ length: 10 }, (_, row) =>
     Array.from({ length: 10 }, (_, column) => {
       const index = row * 10 + column
@@ -88,7 +99,7 @@ const grid = {
 }
 
 mkdirSync(OUTPUT_DIR, { recursive: true })
-for (const page of [1, 2]) {
+for (const page of [1, 2, 3]) {
   const pageReadings = { ...readings, now: now + (page - 1) * PAGE_MS }
   const svg = buildPanelSvg({ stats, readings: pageReadings, grid, isWorking: false })
   const pngPath = `${OUTPUT_DIR}panel-page-${page}.png`

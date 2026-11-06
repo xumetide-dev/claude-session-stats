@@ -397,11 +397,12 @@ describe('上下文格子与面板', () => {
     expect(escapeXml('a<b>&"c"')).toBe('a&lt;b&gt;&amp;&quot;c&quot;')
   })
 
-  test('轮播每 20 秒换一页，两页轮流', async () => {
+  test('轮播每 20 秒换一页，三页轮流', async () => {
     expect(carouselPage(0)).toBe(0)
     expect(carouselPage(19_999)).toBe(0)
     expect(carouselPage(20_000)).toBe(1)
-    expect(carouselPage(40_000)).toBe(0)
+    expect(carouselPage(40_000)).toBe(2)
+    expect(carouselPage(60_000)).toBe(0)
   })
 
   test('数据最满时面板仍远小于 Svg 的长度上限', async () => {

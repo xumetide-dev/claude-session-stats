@@ -55,13 +55,14 @@ const HATCH_LINE_WIDTH = 1.2
 export const FORECAST_FILL = 'url(#forecastHatch)'
 
 /**
- * 面板 <defs> 里的渐变与纹理：卡片底、头像底、速度柱子与花费曲线下方的填充，
+ * 面板 <defs> 里的渐变与纹理：卡片底、三种头像底、速度柱子与花费曲线下方的填充，
  * 以及额度条预测阴影的斜纹。引用处写 url(#id)。
  */
 export const PANEL_DEFS =
   verticalGradient('cardFill', [[0, COLORS.cardTop, 1], [1, COLORS.cardBottom, 1]]) +
   verticalGradient('agentAvatar', [[0, '#8f9cf7', 1], [1, '#56c4f4', 1]]) +
   verticalGradient('mainAvatar', [[0, '#b18cf7', 1], [1, '#6f8ff5', 1]]) +
+  verticalGradient('toolsAvatar', [[0, '#4fe0b5', 1], [1, '#2b9fd9', 1]]) +
   verticalGradient('speedBar', [[0, COLORS.accent, 1], [1, COLORS.accent, 0.25]]) +
   verticalGradient('costFill', [[0, COLORS.accent, 0.32], [1, COLORS.accent, 0]]) +
   hatchPattern('forecastHatch', COLORS.forecast)

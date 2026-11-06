@@ -47,20 +47,47 @@ export type SessionStats = {
   firstTokenWaitMs: number
   /** 计入 TTFT 的请求数（TTFT 的分母）。 */
   firstTokenCount: number
+  /**
+   * 主对话最近一次请求的 effort（思考强度）档位，如 high；引擎给的是数字时写成
+   * 数字串。模型不支持 effort、或还没有请求时为 null。
+   */
+  effort: string | null
   /** 主对话的工具调用次数。 */
   toolCalls: number
   /** 主对话各次工具调用的耗时之和，毫秒；并行的调用各自计入。 */
   toolMs: number
+  /**
+   * 主对话的工具调用按工具名分开的合计，面板的工具分布页按耗时排序取前几个。
+   * 从插件加入这一项之后开始计，之前的调用只在 toolCalls、toolMs 里。
+   */
+  toolBreakdown: Record<string, ToolTally>
   /** 子 agent 请求的 token 合计，已含在 totalTokens 里。 */
   agentTokens: number
   /** 子 agent 各轮的耗时之和，毫秒；并行的子 agent 各自计入。 */
   agentWorkMs: number
   /** 子 agent 的工具调用次数合计。 */
   agentToolCalls: number
+  /**
+   * 因限流（rate_limit）而失败结束的轮次数：引擎重试用尽后整轮失败才计
+   * （classic.StopFailure），重试成功的不计。
+   */
+  rateLimitFailures: number
+  /** 因服务过载（overloaded）而失败结束的轮次数，口径同 rateLimitFailures。 */
+  overloadFailures: number
   /** 主对话最近若干次请求的速度与 TTFT，旧的在前；面板画成双轴小图。 */
   recentRequests: RequestSample[]
   /** 花费每变化一次记一个点，旧的在前；点数超上限时隔一个删一个，保留整段走势。 */
   costPoints: CostPoint[]
+}
+
+/** 一个工具在主对话里的合计。 */
+export type ToolTally = {
+  /** 调用次数。 */
+  calls: number
+  /** 各次调用的耗时之和，毫秒；含等待权限确认的时间。 */
+  ms: number
+  /** 失败的次数：工具报错（isError），或调用被拒绝（deny）。 */
+  failures: number
 }
 
 /** 主对话一次请求的样本：速度柱子与 TTFT 曲线共用横轴。 */
@@ -108,6 +135,8 @@ export type EngineReadings = {
   sessionStartedAt: number | null
   /** 用户发过的 prompt 数，含 mod 加载前的。 */
   promptCount: number | null
+  /** 主对话的模型，/model 显示的名字；还没读到时为 null。 */
+  model: string | null
   /** 运行中（running 或 waiting）的子 agent 数。 */
   runningAgents: number | null
   /** 5 小时限额窗口；非订阅账号或尚无读数时为 null。 */
@@ -149,6 +178,11 @@ export type ContextGrid = {
   windowTokens: number
   /** usedTokens / windowTokens 的整数百分比，引擎算好的。 */
   percent: number
+  /**
+   * 自动压缩的触发点，token：占用到这里引擎就压缩上下文，通常小于 windowTokens。
+   * 关闭了自动压缩时为 null；旧版本存下的格子没有这一项。
+   */
+  autoCompactTokens?: number | null
 }
 
 declare module 'claude-code' {

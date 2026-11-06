@@ -96,15 +96,16 @@ test('桌面端画 Svg 面板，数据进到对应的栏里；两处轮播每 20
   expect(source.startsWith('<svg ')).toBe(true)
   expect(source.endsWith('</svg>')).toBe(true)
   expect(source.length).toBeLessThan(131_072)
-  // 子 agent 卡片：头部是运行中 1 个，下面的小方块是合计。
-  expect(source).toContain('>子 agent<')
-  expect(source).toContain('>运行中<')
-  expect(source).toContain('>合计耗时<')
-  // 第二张卡片第一页是上下文构成点阵，第二页的会话与缓存这时不画。
-  expect(source).toContain('上下文构成')
+  // 第一页：主对话（prompt、工具调用与耗时，头部带模型）与上下文构成点阵。
+  expect(source).toContain('>主对话<')
+  expect(source).toContain('>Prompt<')
+  expect(source).toContain('>工具调用<')
+  expect(source).toContain('· Opus 5.5')
+  expect(source).not.toContain('子 agent')
+  // 上下文页的头部是占比，压缩次数在页脚；会话累计这时不画。
+  expect(source).toContain('>上下文<')
+  expect(source).toContain('>压缩 0次<')
   expect(source).not.toContain('命中率')
-  // prompt 与工具次数只在第一张卡片的主对话页。
-  expect(source).not.toContain('Prompt')
   // 5 小时到 85%、没有重置时刻：比不了时间，按 80% 的规则用提醒色，时间条写占位符。
   // 断言读数本身的颜色：花费折线的末端点也用提醒色，只查 fill 证明不了限额。
   expect(source).toContain(`fill="${COLORS.warning}">85%<`)
@@ -118,19 +119,28 @@ test('桌面端画 Svg 面板，数据进到对应的栏里；两处轮播每 20
   expect(source).toContain('url(#costFill)')
   expect(source).toContain('$1.50')
 
-  // 20 秒后两处同时换到第二页。第一张卡片是主对话的 prompt 与工具；第二张是上下文
+  // 20 秒后两处同时换到第二页：子 agent 合计（头部运行中 1 个）与会话累计——上下文
   // 窗口占用，与红黄绿三段的缓存仪表（分界写在段间）。
   await clock.advance(20_000)
   const second = (await panelProps($)).source
-  expect(second).toContain('>主对话<')
-  expect(second).toContain('>Prompt<')
-  expect(second).toContain('>工具次数<')
-  expect(second).not.toContain('子 agent')
+  expect(second).toContain('>子 agent<')
+  expect(second).toContain('>运行中<')
+  expect(second).toContain('>合计耗时<')
+  expect(second).not.toContain('Prompt')
   expect(second).toContain('>上下文<')
   expect(second).toContain('>1.2万 / 20万<')
   expect(second).toContain('命中率')
   expect(second).toContain('>90%<')
-  expect(second).not.toContain('上下文构成')
+  expect(second).not.toContain('压缩 0次')
+
+  // 再过 20 秒是第三页：主对话按工具分开的耗时，旁边仍是会话累计。这个会话还没有
+  // 工具调用，三个小方块都是占位符。
+  await clock.advance(20_000)
+  const third = (await panelProps($)).source
+  expect(third).toContain('>工具分布<')
+  expect(third).toContain('合计 0次 · 0秒')
+  expect(third.split('>—<').length - 1).toBeGreaterThan(2)
+  expect(third).toContain('命中率')
 })
 
 test('上下文占用按 /context 的自动压缩窗口算，与桌面端的上下文指示一致', async ($, on) => {

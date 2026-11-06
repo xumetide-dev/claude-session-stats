@@ -27,11 +27,13 @@ import {
   addCompaction,
   addMainToolCall,
   addRequestUsage,
+  addStopFailure,
   addStreamTiming,
   adoptSession,
   backfillStats,
   finishMainTurn,
   recordCost,
+  recordEffort,
   resetForNewSession,
   startMainTurn,
 } from './stats'
@@ -76,6 +78,7 @@ export const register: Register = on => {
   registerTurnCounters(on)
   registerToolCounters(on)
   registerRequestCounters(on)
+  registerFailureCounters(on)
   registerBand(on)
 }
 
@@ -85,15 +88,17 @@ export const register: Register = on => {
  * 计数顺带对上当前会话、记下花费的变化（syncStats）。
  */
 async function refreshReadings($: EngineInterface): Promise<void> {
-  const [now, usage, agents, promptCount, sharedFile, sessionId] = await Promise.all([
-    $.clock.now(),
-    $.session.usage(),
-    $.agent.list(),
-    $.session.turns(),
-    readSharedLimits($),
-    $.session.id(),
-  ])
-  const raw = toReadings({ now, usage, agents, promptCount })
+  const [now, usage, agents, promptCount, sharedFile, sessionId, model] =
+    await Promise.all([
+      $.clock.now(),
+      $.session.usage(),
+      $.agent.list(),
+      $.session.turns(),
+      readSharedLimits($),
+      $.session.id(),
+      $.session.model(),
+    ])
+  const raw = toReadings({ now, usage, agents, promptCount, model })
   const previousLimits = await read($, ownLimits)
   const stampedLimits = stampOwnLimits(previousLimits, raw)
   if (JSON.stringify(stampedLimits) !== JSON.stringify(previousLimits)) {
@@ -266,15 +271,20 @@ function registerTurnCounters(on: On): void {
   }).catch(($, e, next) => next(e))
 }
 
-/** 工具调用：主对话的计次数与耗时，子 agent 的只计次数。 */
+/**
+ * 工具调用：主对话的计次数与耗时，并按工具名记下次数、耗时与失败；子 agent 的
+ * 只计次数。工具报错（isError）或调用被拒绝（deny）算失败。
+ */
 function registerToolCounters(on: On): void {
   on('tool.call', async ($, e, next) => {
     const startedAt = await $.clock.now()
     const ran = await next(e)
     const durationMs = (await $.clock.now()) - startedAt
     const isMainLoop = e.agentId === undefined
+    const isFailed = ran.deny !== undefined || ran.isError === true
+    const call = { tool: e.tool, durationMs, isFailed }
     await update($, stats, current =>
-      isMainLoop ? addMainToolCall(current, durationMs) : addAgentToolCall(current),
+      isMainLoop ? addMainToolCall(current, call) : addAgentToolCall(current),
     )
 
     return ran
@@ -295,6 +305,11 @@ function registerRequestCounters(on: On): void {
     if (e.agentId === undefined) {
       const answered = yield* forwardMainRequest($, stream, requestedAt)
       refreshGridSoon($)
+      // 请求结束后再记 effort：不在请求发出前多等一次 $.state 的读写。
+      const stored = await read($, stats)
+      if (recordEffort(stored, e.effort) !== stored) {
+        await update($, stats, current => recordEffort(current, e.effort))
+      }
 
       return answered
     }
@@ -309,6 +324,21 @@ function registerRequestCounters(on: On): void {
 
     return response
   })
+}
+
+/**
+ * 一轮因 API 错误失败结束（引擎重试用尽）：限流与过载各计一次。经典钩子事件不论
+ * 有没有配置 settings hook 都会触发；这里只观察，计数出错时照常放行。
+ */
+function registerFailureCounters(on: On): void {
+  on('classic.StopFailure', async ($, e, next) => {
+    const stored = await read($, stats)
+    if (addStopFailure(stored, e.error) !== stored) {
+      await update($, stats, current => addStopFailure(current, e.error))
+    }
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
 }
 
 /**

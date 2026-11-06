@@ -191,7 +191,8 @@ export function stepChart(area: Area, points: CostPoint[], now: number): string 
     `<path d="${areaPath}" fill="url(#costFill)"/>` +
     `<path d="${line}" fill="none" stroke="${COLORS.accent}" stroke-width="1.5" ` +
     `stroke-linejoin="round"/>` +
-    endpoint(toX(end), toY(last.usd), COLORS.warning)
+    // 末端点与折线同色：橙色在面板上只表示提醒，花费涨了不是提醒。
+    endpoint(toX(end), toY(last.usd), COLORS.accent)
   )
 }
 

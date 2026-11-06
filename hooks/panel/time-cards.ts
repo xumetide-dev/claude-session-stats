@@ -14,7 +14,7 @@ import { COLORS } from './palette'
 import { caption, escapeXml, fitFontSize, fixed } from './primitives'
 import type { Area } from './primitives'
 
-// 桌面端面板的两张时间卡片：运行时长（时、分、秒三个方块）；处理速度与 TTFT
+// 桌面端面板的两张时间卡片：运行时长（时、分、秒三个方块）；输出速度与 TTFT
 // （两个大号读数与最近若干次请求的双轴小图）。
 
 /** 两张卡片用到的数据。 */
@@ -118,7 +118,7 @@ function clockTiles(row: Area, sessionMs: number | null): string {
 }
 
 /**
- * 处理速度与 TTFT：左右两个大号读数，下面是最近若干次请求的双轴小图，柱子是速度、
+ * 输出速度与 TTFT：左右两个大号读数，下面是最近若干次请求的双轴小图，柱子是速度、
  * 曲线是 TTFT。读数用各自图形的颜色，兼作图例。
  */
 export function speedCard(card: Area, { stats }: TimeInput): string {
@@ -130,10 +130,11 @@ export function speedCard(card: Area, { stats }: TimeInput): string {
   const valueY = card.y + 50
   const speedAt = { x, y: valueY, maxWidth: middle - 6 - x }
   const ttftAt = { x: middle + 10, y: valueY, maxWidth: right - middle - 10 }
+  const chartArea = { x, y: card.y + 60, w: right - x, h: card.h - 68 }
 
   return (
     boltIcon(x + 6, card.y + 17, 14, COLORS.accent) +
-    caption(x + 16, card.y + HEADER_BASELINE, '处理速度', TITLE_STYLE) +
+    caption(x + 16, card.y + HEADER_BASELINE, '输出速度', TITLE_STYLE) +
     vLine(middle, card.y + 10, card.y + 54) +
     lineIcon('clock', middle + 16, card.y + 17, 13, COLORS.ttft) +
     caption(middle + 26, card.y + HEADER_BASELINE, 'TTFT', {
@@ -149,12 +150,27 @@ export function speedCard(card: Area, { stats }: TimeInput): string {
       { value: ttftValue(ttft), unit: ttft === null ? '' : 's' },
       COLORS.ttft,
     ) +
-    requestChart(
-      { x, y: card.y + 60, w: right - x, h: card.h - 68 },
-      stats.recentRequests,
-      REQUEST_SLOTS,
-    )
+    requestChart(chartArea, stats.recentRequests, REQUEST_SLOTS) +
+    failureNote(chartArea, stats)
   )
+}
+
+/**
+ * 限流、过载失败的轮次数：小图顶上两轴标之间的一行小红字，"限流 2 · 过载 1"。
+ * 两者都为 0 时不画，平时不占地方。
+ */
+function failureNote(chartArea: Area, stats: SessionStats): string {
+  const parts = [
+    stats.rateLimitFailures > 0 ? `限流 ${stats.rateLimitFailures}` : null,
+    stats.overloadFailures > 0 ? `过载 ${stats.overloadFailures}` : null,
+  ].filter((part): part is string => part !== null)
+  if (parts.length === 0) {
+    return ''
+  }
+
+  return caption(chartArea.x + chartArea.w / 2, chartArea.y + 7, parts.join(' · '), {
+    size: 9, color: COLORS.error, anchor: 'middle',
+  })
 }
 
 /** 速度的大号读数：整数 token/秒。 */

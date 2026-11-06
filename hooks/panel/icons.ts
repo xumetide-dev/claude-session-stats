@@ -60,14 +60,13 @@ export function dollarIcon(cx: number, cy: number, size: number, color: string):
   )
 }
 
-/** 头像的样式：子 agent 是机器人，主对话是对话气泡。 */
-export type AvatarKind = 'agent' | 'main'
+/** 头像的样式：子 agent 是机器人，主对话是对话气泡，工具分布是四个方块。 */
+export type AvatarKind = 'agent' | 'main' | 'tools'
 
 /** 圆角方块头像，边长 size，左上角在 (x, y)。 */
 export function avatar(kind: AvatarKind, x: number, y: number, size: number): string {
   const scale = size / 32
-  const face = kind === 'agent' ? ROBOT_FACE : CHAT_FACE
-  const gradient = kind === 'agent' ? 'agentAvatar' : 'mainAvatar'
+  const { face, gradient } = AVATARS[kind]
 
   return (
     `<g transform="translate(${fixed(x)} ${fixed(y)}) scale(${fixed2(scale)})">` +
@@ -93,6 +92,21 @@ const CHAT_FACE =
   '<circle cx="11.5" cy="15.5" r="1.6" fill="#5b5fc7"/>' +
   '<circle cx="16" cy="15.5" r="1.6" fill="#5b5fc7"/>' +
   '<circle cx="20.5" cy="15.5" r="1.6" fill="#5b5fc7"/>'
+
+// 工具：四个白色圆角方块，与"工具调用"小方块的图标同形。32×32 的格子。
+const TOOLS_FACE =
+  '<rect x="8" y="8" width="7" height="7" rx="1.8" fill="#effffa"/>' +
+  '<rect x="17" y="8" width="7" height="7" rx="1.8" fill="#effffa"/>' +
+  '<rect x="8" y="17" width="7" height="7" rx="1.8" fill="#effffa"/>' +
+  '<rect x="17" y="17" width="7" height="7" rx="1.8" fill="#effffa" opacity="0.6"/>'
+
+// 各头像的脸与底色渐变（渐变定义在 palette.ts 的 PANEL_DEFS）。写在三张脸之后：
+// 模块加载时就要读到它们。
+const AVATARS: Record<AvatarKind, { face: string; gradient: string }> = {
+  agent: { face: ROBOT_FACE, gradient: 'agentAvatar' },
+  main: { face: CHAT_FACE, gradient: 'mainAvatar' },
+  tools: { face: TOOLS_FACE, gradient: 'toolsAvatar' },
+}
 
 /** 16×16 的格子平移、缩放到以 (cx, cy) 为中心、边长 size。 */
 function placement(cx: number, cy: number, size: number): string {

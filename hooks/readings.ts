@@ -20,6 +20,7 @@ export const EMPTY_READINGS: EngineReadings = {
   now: 0,
   sessionStartedAt: null,
   promptCount: null,
+  model: null,
   runningAgents: null,
   fiveHour: null,
   sevenDay: null,
@@ -35,13 +36,14 @@ export type EngineSnapshot = {
   usage: SessionUsage
   agents: readonly AgentInfo[]
   promptCount: number
+  model: string
 }
 
 // waiting 是子 agent 在运行途中被挂起（等它自己的后台任务、等审批），仍算运行中。
 const ACTIVE_AGENT_STATUSES: readonly AgentStatus[] = ['running', 'waiting']
 
 export function toReadings(snapshot: EngineSnapshot): EngineReadings {
-  const { now, usage, agents, promptCount } = snapshot
+  const { now, usage, agents, promptCount, model } = snapshot
   const { context } = usage
   const runningAgents = agents.filter(agent =>
     ACTIVE_AGENT_STATUSES.includes(agent.status),
@@ -56,6 +58,7 @@ export function toReadings(snapshot: EngineSnapshot): EngineReadings {
     now,
     sessionStartedAt: usage.startedAt,
     promptCount,
+    model: model === '' ? null : model,
     runningAgents,
     fiveHour: rateLimitOf(usage.rateLimits, 'five_hour'),
     sevenDay: rateLimitOf(usage.rateLimits, 'seven_day'),
@@ -97,6 +100,9 @@ export function toContextGrid(breakdown: SessionContextBreakdown): ContextGrid {
     usedTokens: breakdown.totalTokens,
     windowTokens: breakdown.rawMaxTokens,
     percent: breakdown.percentage,
+    autoCompactTokens: breakdown.isAutoCompactEnabled
+      ? breakdown.autoCompactThreshold ?? null
+      : null,
   }
 }
 
