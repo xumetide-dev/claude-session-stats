@@ -1,0 +1,553 @@
+{
+  "id": "session-stats-panel-info-structure",
+  "title": "调整面板信息结构并新增工具分布页",
+  "status": "completed",
+  "source_assessment": "来源：本会话两个子代理对\"UI 展示 vs 插件 API\"的交叉对比，以及用户从建议中挑选的九项。已核实 d.ts：autoCompactThreshold、$.session.model()、turn.step effort、classic.StopFailure.error、tool.call 结果的 isError/deny。限流重试标记在类型里不透明，计数口径为重试用尽后整轮失败。",
+  "context": {
+    "created_at": "2026-11-06",
+    "repository": "claude-session-stats",
+    "mode": "standalone",
+    "plan_ref": null,
+    "plan_id": null,
+    "work_unit_id": null,
+    "plan_revision_at_bind": null,
+    "phase": "prepare",
+    "source_of_truth": "This record owns the single local execution boundary.",
+    "bootstrap": false,
+    "coordination_shape": "pipeline",
+    "shape_notes": "The local dependency graph is the canonical representation of this coordination shape.",
+    "required_skills": [],
+    "execution_principle": "Keep one record scoped to one work unit.",
+    "evidence_policy": "Append evidence and preserve failed attempts.",
+    "output_contract": "Return a validated result envelope without changing parent PLAN facts.",
+    "recovery_strategy": "Resume from the last completed task and next_action.",
+    "scope_policy": "只做用户挑选的九项：轮播重新配对；上下文占比常驻（上下文页标题改为占比、压缩次数挪到页脚）；\"工具次数\"与\"工具\"统一写法；\"处理速度\"改为\"输出速度\"；花费折线末端点改绿；上下文条上画自动压缩阈值刻度；主对话头部显示模型与 effort；限流/过载计数不为 0 时显示小红字；新增\"工具分布\"轮播页（按耗时前三的工具与失败次数）。不扩展到终端行、收起摘要或其它卡片。",
+    "carousel_contract": "两处轮播共用页码，三页：主对话+上下文构成、子 agent+会话累计、工具分布+会话累计；即\"此刻 / 累计 / 累计\"，每页 20 秒。",
+    "data_contract": "新增数据经 types/index.d.ts 契约：EngineReadings.model（$.session.model()）、ContextGrid.autoCompactTokens（breakdown.autoCompactThreshold）、SessionStats.effort、rateLimitErrors、overloadErrors（classic.StopFailure）、toolBreakdown（主对话 tool.call 按工具名）。旧版本 $.state 里的统计由 backfillStats 用 EMPTY_STATS 补齐。",
+    "display_principle": "不改卡片几何；新元素放进现有留白；平时为 0 的提醒不占位置；颜色沿用 palette，橙色只表示提醒。",
+    "verification_strategy": "tsc -p . 与 claude plugin test . 全部通过；rsvg-convert 渲染三页面板目视检查；按 edit_actions>13 或收尾时运行 harness。"
+  },
+  "ref_files": [
+    "hooks/panel/panel.ts",
+    "hooks/panel/activity-pages.ts",
+    "hooks/panel/context-pages.ts",
+    "hooks/panel/time-cards.ts",
+    "hooks/panel/charts.ts",
+    "hooks/panel/cards.ts",
+    "hooks/register.tsx",
+    "hooks/stats.ts",
+    "hooks/readings.ts",
+    "types/index.d.ts",
+    "tests/format.test.ts",
+    "tests/band.test.tsx",
+    "tests/fixtures.ts",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "scripts/readme-images.mts"
+  ],
+  "tasks": [
+    {
+      "seq": 1,
+      "agent_type": "MainAgent",
+      "owner": "MainAgent-regroup-carousel-and-pin-context-share",
+      "title": "轮播三页配对与上下文占比常驻",
+      "status": "completed",
+      "priority": "critical",
+      "depends_on": [],
+      "description": "PAGE_COUNT 改为 3，两处页面数组按\"主对话+上下文构成 / 子 agent+会话累计 / 工具分布+会话累计\"排列；卡片 2 页码点留宽按三个点调整；上下文构成页标题改为\"上下文 N%\"，压缩次数挪到页脚。",
+      "output_json_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "files"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "files": [
+        "hooks/panel/panel.ts",
+        "hooks/panel/context-pages.ts",
+        "hooks/panel/activity-pages.ts"
+      ],
+      "evidence": [
+        "tsc -p . 通过（任务 1 改动后）"
+      ],
+      "notes": [],
+      "result": {
+        "summary": "两处轮播改为 主对话+上下文构成 / 子 agent+会话累计；PAGE_COUNT 取页面数组长度，第三页在任务 6 追加；上下文构成页标题改为上下文占比，压缩次数挪到页脚；卡片 2 页码点留宽按三个点改为 26。",
+        "files": [
+          "hooks/panel/panel.ts",
+          "hooks/panel/context-pages.ts",
+          "hooks/panel/activity-pages.ts"
+        ]
+      },
+      "next_action": "任务 2：标签统一与花费末端点改绿"
+    },
+    {
+      "seq": 2,
+      "agent_type": "MainAgent",
+      "owner": "MainAgent-unify-labels-and-recolor-cost-endpoint",
+      "title": "标签统一与花费末端点改绿",
+      "status": "completed",
+      "priority": "medium",
+      "depends_on": [],
+      "description": "\"工具次数\"与\"工具\"统一为\"工具调用\"；速度卡片\"处理速度\"改为\"输出速度\"；花费折线末端点由 warning 改为 accent。",
+      "output_json_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "files"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "files": [
+        "hooks/panel/time-cards.ts",
+        "hooks/panel/charts.ts"
+      ],
+      "evidence": [],
+      "notes": [],
+      "result": {
+        "summary": "面板小方块的工具调用次数统一标为“工具调用”（主对话与子 agent 两页）；速度卡片标题改为“输出速度”；花费折线末端点改用强调绿。终端行的“工具 N次 · 耗时”不在本次范围内，未改。",
+        "files": [
+          "hooks/panel/activity-pages.ts",
+          "hooks/panel/time-cards.ts",
+          "hooks/panel/panel.ts",
+          "hooks/panel/charts.ts"
+        ]
+      },
+      "next_action": "任务 3：上下文条画自动压缩阈值刻度"
+    },
+    {
+      "seq": 3,
+      "agent_type": "MainAgent",
+      "owner": "MainAgent-mark-auto-compact-threshold-on-context-bar",
+      "title": "上下文条画自动压缩阈值刻度",
+      "status": "completed",
+      "priority": "high",
+      "depends_on": [],
+      "description": "readings.toContextGrid 读 breakdown.autoCompactThreshold 存入 ContextGrid.autoCompactTokens；会话累计页的上下文条按 阈值÷窗口 画一道刻度；关闭自动压缩或没有格子时不画。",
+      "output_json_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "files"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "files": [
+        "types/index.d.ts",
+        "hooks/readings.ts",
+        "hooks/panel/primitives.ts"
+      ],
+      "evidence": [],
+      "notes": [],
+      "result": {
+        "summary": "ContextGrid 新增 autoCompactTokens（breakdown.autoCompactThreshold，关闭自动压缩为 null）；新增图元 markerTick；会话累计页上下文条按 阈值÷窗口 画白色刻度，退回状态栏读数或旧格子时不画。",
+        "files": [
+          "types/index.d.ts",
+          "hooks/readings.ts",
+          "hooks/panel/context-pages.ts",
+          "hooks/panel/primitives.ts"
+        ]
+      },
+      "next_action": "任务 4：主对话头部显示模型与 effort"
+    },
+    {
+      "seq": 4,
+      "agent_type": "MainAgent",
+      "owner": "MainAgent-show-model-and-effort-in-main-header",
+      "title": "主对话头部显示模型与 effort",
+      "status": "completed",
+      "priority": "high",
+      "depends_on": [],
+      "description": "刷新时读 $.session.model() 存入 EngineReadings.model；主对话请求的 turn.step e.effort 存入 SessionStats.effort；主对话页头部状态后接\"· 模型 · effort\"，放不下时截断。",
+      "output_json_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "files"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "files": [
+        "hooks/stats.ts",
+        "hooks/register.tsx",
+        "hooks/format.ts"
+      ],
+      "evidence": [],
+      "notes": [],
+      "result": {
+        "summary": "EngineReadings.model 每秒读 $.session.model()；SessionStats.effort 在主对话请求结束后按 turn.step e.effort 记下（变了才写）；formatModelName 把 claude-opus-5-5 / Opus 5.5 写成 Opus 5.5，认不出原样；主对话页头部状态后接暗色小一号的“· 模型 · effort”，放不下用 truncateToWidth 截断。测试夹具需补 session.model 应答（任务 7）。",
+        "files": [
+          "types/index.d.ts",
+          "hooks/readings.ts",
+          "hooks/stats.ts",
+          "hooks/register.tsx",
+          "hooks/format.ts",
+          "hooks/panel/activity-pages.ts",
+          "hooks/panel/primitives.ts"
+        ]
+      },
+      "next_action": "任务 5：限流与过载失败计数"
+    },
+    {
+      "seq": 5,
+      "agent_type": "MainAgent",
+      "owner": "MainAgent-count-rate-limit-and-overload-failures",
+      "title": "限流与过载失败计数",
+      "status": "completed",
+      "priority": "medium",
+      "depends_on": [],
+      "description": "订阅 classic.StopFailure，error 为 rate_limit / overloaded 时分别计数；两者都为 0 时不画，否则在速度卡片小图两轴标之间用小号红字显示。",
+      "output_json_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "files"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "files": [],
+      "evidence": [
+        "rsvg-convert 渲染三页：速度卡片显示“限流 2 · 过载 1”红字"
+      ],
+      "notes": [],
+      "result": {
+        "summary": "SessionStats 新增 rateLimitFailures、overloadFailures；订阅 classic.StopFailure，error 为 rate_limit / overloaded 时各计一次（重试用尽后整轮失败的口径）；速度卡片小图两轴标之间画小号红字“限流 N · 过载 N”，两者都为 0 时不画。",
+        "files": [
+          "types/index.d.ts",
+          "hooks/stats.ts",
+          "hooks/register.tsx",
+          "hooks/panel/time-cards.ts"
+        ]
+      },
+      "next_action": "任务 6 收尾"
+    },
+    {
+      "seq": 6,
+      "agent_type": "MainAgent",
+      "owner": "MainAgent-add-tool-breakdown-carousel-page",
+      "title": "新增工具分布轮播页",
+      "status": "completed",
+      "priority": "high",
+      "depends_on": [
+        1
+      ],
+      "description": "主对话 tool.call 按工具名累计次数、耗时、失败（isError 或 deny）；卡片 1 第三页画按耗时前三的工具：名称、耗时与次数、占工具耗时的比例条、失败次数（红）。",
+      "output_json_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "files"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "files": [
+        "hooks/panel/icons.ts",
+        "hooks/panel/palette.ts"
+      ],
+      "evidence": [
+        "rsvg-convert 渲染三页：工具分布页、模型与 effort、压缩刻度、花费末端点绿色均符合预期；上下文页标题与页码点间距修正"
+      ],
+      "notes": [],
+      "result": {
+        "summary": "SessionStats.toolBreakdown 按工具名记次数、耗时、失败（isError 或 deny）；新增工具分布页（头像 tools、合计次数与耗时、按耗时前三的小方块：耗时、工具名、次数，失败红字）；轮播改为三页：主对话+上下文构成 / 子 agent+会话累计 / 工具分布+会话累计；卡片 2 页码点留宽改为 32。",
+        "files": [
+          "types/index.d.ts",
+          "hooks/stats.ts",
+          "hooks/register.tsx",
+          "hooks/panel/activity-pages.ts",
+          "hooks/panel/icons.ts",
+          "hooks/panel/palette.ts",
+          "hooks/panel/panel.ts",
+          "hooks/panel/context-pages.ts"
+        ]
+      },
+      "next_action": "任务 7：补测试并运行类型检查与插件测试"
+    },
+    {
+      "seq": 7,
+      "agent_type": "MainAgent",
+      "owner": "MainAgent-verify-with-typecheck-and-plugin-tests",
+      "title": "补测试并运行类型检查与插件测试",
+      "status": "completed",
+      "priority": "critical",
+      "depends_on": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "description": "为新纯函数与面板输出补用例，更新受标签与页数影响的断言；tsc -p . 与 claude plugin test . 全部通过。",
+      "output_json_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "files",
+          "tests_passed",
+          "tests_failed"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tests_passed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tests_failed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "files": [
+        "tests/fixtures.ts",
+        "tests/band.test.tsx",
+        "tests/format.test.ts",
+        "tests/edge-values.test.ts",
+        "tests/panel-pages.test.ts"
+      ],
+      "evidence": [
+        "claude plugin test .：首次运行 15 失败（夹具未应答 session.model）→ 补夹具后 5 失败（START 落在三页轮播第 2 页）→ 改 START 与页序断言后 1 失败 → 修正第三页断言后 104 通过 0 失败",
+        "claude plugin validate .：Validation passed"
+      ],
+      "notes": [],
+      "result": {
+        "summary": "测试夹具补 session.model 应答与 model 字段；START 改为 60 秒整数倍（三页轮播第一页开头）；band 与 format 测试改为三页顺序；新增 tests/panel-pages.test.ts 覆盖上下文页、压缩刻度、模型名与 effort、截断、限流过载计数、工具分布与经引擎事件驱动的端到端用例。tsc -p . 通过，claude plugin test . 104 通过 0 失败，claude plugin validate . 通过。",
+        "files": [
+          "tests/fixtures.ts",
+          "tests/band.test.tsx",
+          "tests/format.test.ts",
+          "tests/edge-values.test.ts",
+          "tests/panel-pages.test.ts"
+        ],
+        "tests_passed": 104,
+        "tests_failed": 0
+      },
+      "next_action": "任务 8：更新 README、CHANGELOG 与截图"
+    },
+    {
+      "seq": 8,
+      "agent_type": "MainAgent",
+      "owner": "MainAgent-update-docs-changelog-and-screenshots",
+      "title": "更新 README、CHANGELOG 与截图",
+      "status": "completed",
+      "priority": "medium",
+      "depends_on": [
+        7
+      ],
+      "description": "README 中英文的卡片表与说明、CHANGELOG 未发布节；readme-images 渲染三页截图并接入 README；目视检查渲染结果。",
+      "output_json_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "files"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "files": [
+        "README.md",
+        "README.en.md",
+        "CHANGELOG.md",
+        "scripts/readme-images.mts",
+        "docs/images/panel-page-1.png",
+        "docs/images/panel-page-2.png",
+        "docs/images/panel-page-3.png"
+      ],
+      "evidence": [
+        "npx tsx scripts/readme-images.mts 生成 panel-page-1/2/3.png，目视检查第一、三页布局正确"
+      ],
+      "notes": [],
+      "result": {
+        "summary": "README 中英文：卡片表改为三页与新标签，指标表补工具分布、模型与 effort、限流/过载，说明补压缩刻度与工具分布的计数起点，截图改为第一页并链接第二、三页；CHANGELOG 未发布节补新增与变更；readme-images 渲染三页，示例数据补模型、effort、按工具合计与压缩阈值；目视检查三张截图。",
+        "files": [
+          "README.md",
+          "README.en.md",
+          "CHANGELOG.md",
+          "scripts/readme-images.mts",
+          "docs/images/panel-page-1.png",
+          "docs/images/panel-page-2.png",
+          "docs/images/panel-page-3.png"
+        ]
+      }
+    }
+  ],
+  "DAG": {
+    "nodes": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "edges": [
+      {
+        "from": 1,
+        "to": 6
+      },
+      {
+        "from": 1,
+        "to": 7
+      },
+      {
+        "from": 2,
+        "to": 7
+      },
+      {
+        "from": 3,
+        "to": 7
+      },
+      {
+        "from": 4,
+        "to": 7
+      },
+      {
+        "from": 5,
+        "to": 7
+      },
+      {
+        "from": 6,
+        "to": 7
+      },
+      {
+        "from": 7,
+        "to": 8
+      }
+    ]
+  },
+  "evidence": [
+    "tsc -p . 通过（任务 1 改动后）",
+    "rsvg-convert 渲染三页：速度卡片显示“限流 2 · 过载 1”红字",
+    "rsvg-convert 渲染三页：工具分布页、模型与 effort、压缩刻度、花费末端点绿色均符合预期；上下文页标题与页码点间距修正",
+    "claude plugin test .：首次运行 15 失败（夹具未应答 session.model）→ 补夹具后 5 失败（START 落在三页轮播第 2 页）→ 改 START 与页序断言后 1 失败 → 修正第三页断言后 104 通过 0 失败",
+    "claude plugin validate .：Validation passed",
+    "npx tsx scripts/readme-images.mts 生成 panel-page-1/2/3.png，目视检查第一、三页布局正确"
+  ],
+  "blockers": [],
+  "changed_files": [
+    "hooks/panel/panel.ts",
+    "hooks/panel/context-pages.ts",
+    "hooks/panel/activity-pages.ts",
+    "hooks/panel/time-cards.ts",
+    "hooks/panel/charts.ts",
+    "types/index.d.ts",
+    "hooks/readings.ts",
+    "hooks/panel/primitives.ts",
+    "hooks/stats.ts",
+    "hooks/register.tsx",
+    "hooks/format.ts",
+    "hooks/panel/icons.ts",
+    "hooks/panel/palette.ts",
+    "tests/fixtures.ts",
+    "tests/band.test.tsx",
+    "tests/format.test.ts",
+    "tests/edge-values.test.ts",
+    "tests/panel-pages.test.ts",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "scripts/readme-images.mts",
+    "docs/images/panel-page-1.png",
+    "docs/images/panel-page-2.png",
+    "docs/images/panel-page-3.png"
+  ],
+  "next_action": "等待用户在 App 中 /reload-plugins 实看并决定是否提交"
+}
