@@ -1,5 +1,5 @@
 import type { ContextGrid } from '../../types'
-import { CATEGORY_COLORS, COLORS } from './palette'
+import { CATEGORY_COLORS, COLORS, FORECAST_FILL } from './palette'
 
 // 面板的图元：每个函数返回一段 SVG 标记字符串，坐标都是面板 viewBox 里的像素。
 // 只拼字符串、不碰数据来源，数值进来之前已经算好。两种历史小图在 charts.ts，
@@ -132,12 +132,27 @@ export function segmentedBar(
 /**
  * 比例横条：底轨是 0 到 100%，按比例从左填充。只用于有分母的比例，
  * 超过 100% 的按满格画。
+ * 给了 forecastRatio 时，在底轨与实色填充之间垫一层浅灰斜纹，从左画到预测的比例：
+ * 露出来的是实际用量之后、预测还会用掉的那一段；预测超过 100% 时斜纹铺满整条。
  */
-export function gaugeBar(area: Area, ratio: number, color: string): string {
+export function gaugeBar(
+  area: Area,
+  ratio: number,
+  color: string,
+  forecastRatio: number | null = null,
+): string {
   const fill = clampRatio(ratio) * area.w
   const radius = area.h / 2
+  const forecast =
+    forecastRatio === null
+      ? ''
+      : rect({ ...area, w: clampRatio(forecastRatio) * area.w }, FORECAST_FILL, radius)
 
-  return rect(area, COLORS.track, radius) + rect({ ...area, w: fill }, color, radius)
+  return (
+    rect(area, COLORS.track, radius) +
+    forecast +
+    rect({ ...area, w: fill }, color, radius)
+  )
 }
 
 /**

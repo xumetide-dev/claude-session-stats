@@ -29,7 +29,7 @@ together every 20 seconds. The image below shows the second page:
 | Context / Session (`会话`) | Page 1: compaction count (`压缩`) and a dot grid of context composition. Page 2: session tokens, context usage, and a cache hit rate gauge |
 | Runtime (`运行时长`) | Session runtime in hours, minutes, and seconds, marked LIVE while the main conversation runs; work time and its share of the runtime |
 | Speed (`处理速度`) / TTFT | Average output speed and average TTFT; speed bars and a TTFT line for the last 24 requests |
-| Rate limits (`5小时` / `7天`) | Quota used and time elapsed in the 5-hour and 7-day windows |
+| Rate limits (`5小时` / `7天`) | Quota used and time elapsed in the 5-hour and 7-day windows; light gray hatching on the quota bar shows the projected usage at reset at the current pace |
 | Cost (`花费`) | Current cost and a step line of cost over time |
 
 The chevron at the top center of the panel collapses and expands it: click ﹀ to
@@ -106,6 +106,14 @@ Calculation rules:
 - On the panel, a rate limit turns orange when the share of quota used exceeds the
   share of the window elapsed, and red when the quota is used up. The terminal
   colors by percentage used: orange from 80%, red at 100%.
+- The light gray hatching after the solid fill on a quota bar is the projected usage
+  at reset, extrapolated from the average pace so far in the window: share of quota
+  used ÷ share of the window elapsed. Hatching that fills the whole bar means the
+  quota runs out before the reset at this pace; the bar is orange in that case too.
+  No hatching is drawn until 10% of the window has elapsed (about 30 minutes for
+  the 5-hour window, about 17 hours for the 7-day window), because the projection
+  is unstable before then, nor for a window that has not started or has no reset
+  time.
 - Session tokens, compactions, work time, tool calls, speed, TTFT, and sub-agent
   totals are counted by the plugin, starting when it loads in the current process
   or when the process switches to the current session. `/reload-plugins` keeps

@@ -26,6 +26,8 @@ export const COLORS = {
   error: '#f07a6e',
   // TTFT 曲线与它的读数用蓝色，和绿色的速度柱子区分。
   ttft: '#29aef5',
+  // 额度条上预测阴影的浅灰斜纹，与实际用量的实色填充区分。
+  forecast: '#c3ccd6',
   freeDot: '#1f2d3c',
   bufferDot: '#5e4b2d',
 } as const
@@ -44,16 +46,25 @@ export const CATEGORY_COLORS = [
 export const FONT_FAMILY =
   "-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif"
 
+// 斜纹的周期与线宽（像素）。额度条只有 5 像素高，周期再大就看不出是斜纹。
+// PANEL_DEFS 在模块加载时就拼好，这两个常量要写在它前面。
+const HATCH_PERIOD = 3
+const HATCH_LINE_WIDTH = 1.2
+
+/** 额度条预测阴影的填充：引用 <defs> 里的斜纹。 */
+export const FORECAST_FILL = 'url(#forecastHatch)'
+
 /**
- * 面板 <defs> 里的渐变：卡片底、头像底、速度柱子与花费曲线下方的填充。
- * 引用处写 url(#id)。
+ * 面板 <defs> 里的渐变与纹理：卡片底、头像底、速度柱子与花费曲线下方的填充，
+ * 以及额度条预测阴影的斜纹。引用处写 url(#id)。
  */
-export const GRADIENT_DEFS =
+export const PANEL_DEFS =
   verticalGradient('cardFill', [[0, COLORS.cardTop, 1], [1, COLORS.cardBottom, 1]]) +
   verticalGradient('agentAvatar', [[0, '#8f9cf7', 1], [1, '#56c4f4', 1]]) +
   verticalGradient('mainAvatar', [[0, '#b18cf7', 1], [1, '#6f8ff5', 1]]) +
   verticalGradient('speedBar', [[0, COLORS.accent, 1], [1, COLORS.accent, 0.25]]) +
-  verticalGradient('costFill', [[0, COLORS.accent, 0.32], [1, COLORS.accent, 0]])
+  verticalGradient('costFill', [[0, COLORS.accent, 0.32], [1, COLORS.accent, 0]]) +
+  hatchPattern('forecastHatch', COLORS.forecast)
 
 type Tone = 'warning' | 'error' | undefined
 
@@ -82,5 +93,19 @@ function verticalGradient(id: string, stops: [number, string, number][]): string
   return (
     `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">` +
     `${marks}</linearGradient>`
+  )
+}
+
+/**
+ * 45° 斜纹：一层淡底，上面是等距的细线。按面板坐标平铺，各条上的纹路方向一致。
+ */
+function hatchPattern(id: string, color: string): string {
+  return (
+    `<pattern id="${id}" width="${HATCH_PERIOD}" height="${HATCH_PERIOD}" ` +
+    `patternUnits="userSpaceOnUse" patternTransform="rotate(45)">` +
+    `<rect width="${HATCH_PERIOD}" height="${HATCH_PERIOD}" fill="${color}" ` +
+    `fill-opacity="0.14"/>` +
+    `<rect width="${HATCH_LINE_WIDTH}" height="${HATCH_PERIOD}" fill="${color}" ` +
+    `fill-opacity="0.55"/></pattern>`
   )
 }

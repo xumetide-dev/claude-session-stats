@@ -10,7 +10,11 @@ import {
 } from '../hooks/format'
 import { requestChart } from '../hooks/panel/charts'
 import { COLORS } from '../hooks/panel/palette'
-import { paceTone, windowElapsedRatio } from '../hooks/panel/limits-column'
+import {
+  forecastPercent,
+  paceTone,
+  windowElapsedRatio,
+} from '../hooks/panel/limits-column'
 import {
   PANEL_HEIGHT,
   PANEL_WIDTH,
@@ -341,6 +345,52 @@ describe('上下文格子与面板', () => {
   test('横条超过 100% 按满格画', async () => {
     const markup = gaugeBar({ x: 0, y: 0, w: 100, h: 6 }, 1.5, '#fff')
     expect(markup.split('width="100"').length - 1).toBe(2)
+  })
+
+  test('重置时的用量按窗口平均速度推算：已用 ÷ 已过比例', async () => {
+    // 5 小时窗口过了 44 分钟（约 14.7%）已用 15%：照这个速度会用完。
+    expect(forecastPercent(15, 44 / 300)?.toFixed(1)).toBe('102.3')
+    // 7 天窗口过了 5 天 2 时已用 13%：重置时约用到 17.9%。
+    expect(forecastPercent(13, 122 / 168)?.toFixed(1)).toBe('17.9')
+    expect(forecastPercent(0, 0.5)).toBe(0)
+    // 用量领先时间才会推算超过 100%，与提醒色同一判据。
+    for (const [used, elapsed] of [[72, 0.59], [10, 0.38], [40, 0.4]] as const) {
+      const exceeds = (forecastPercent(used, elapsed) ?? 0) > 100
+      expect(exceeds).toBe(paceTone(used, elapsed) === 'warning')
+    }
+  })
+
+  test('比不了时间或窗口刚开始时不推算', async () => {
+    expect(forecastPercent(30, null)).toBe(null)
+    expect(forecastPercent(0, 0)).toBe(null)
+    expect(forecastPercent(3, 0.09)).toBe(null)
+    expect(forecastPercent(3, 0.1)).toBe(30)
+  })
+
+  test('额度条的预测斜纹垫在实色下面，从左画到预测比例，超过 100% 铺满', async () => {
+    const bar = { x: 0, y: 0, w: 100, h: 6 }
+    const hatch = 'fill="url(#forecastHatch)"'
+    const markup = gaugeBar(bar, 0.2, '#fff', 0.6)
+    expect(markup).toContain(`width="60" height="6" rx="3" ${hatch}`)
+    expect(markup.indexOf(hatch)).toBeLessThan(markup.indexOf('fill="#fff"'))
+    expect(gaugeBar(bar, 0.2, '#fff', 1.4))
+      .toContain(`width="100" height="6" rx="3" ${hatch}`)
+    expect(gaugeBar(bar, 0.2, '#fff')).not.toContain(hatch)
+  })
+
+  test('限额卡片只给可推算的窗口画预测斜纹，斜纹定义在面板 defs 里', async () => {
+    const readings = {
+      ...EMPTY_READINGS,
+      now: START,
+      // 5 小时窗口过了 1 小时（20%），7 天窗口刚过 1 小时，不推算。
+      fiveHour: { percentUsed: 30, resetsAt: START + 4 * HOUR_MS },
+      sevenDay: { percentUsed: 2, resetsAt: START + 167 * HOUR_MS },
+    }
+    const source = buildPanelSvg({
+      stats: EMPTY_STATS, readings, grid: null, isWorking: false,
+    })
+    expect(source).toContain('<pattern id="forecastHatch"')
+    expect(source.split('fill="url(#forecastHatch)"').length - 1).toBe(1)
   })
 
   test('文字里的标记字符被转义', async () => {

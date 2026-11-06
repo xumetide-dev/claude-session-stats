@@ -19,6 +19,9 @@ const ROW_LABEL_WIDTH = 25
 const HOUR_MS = 3_600_000
 const FIVE_HOUR_MS = 5 * HOUR_MS
 const SEVEN_DAY_MS = 7 * 24 * HOUR_MS
+// 窗口过了这个比例才推算重置时的用量：刚开始时分母太小，用量差 1% 推算就差很多。
+// 5 小时窗口是 30 分钟，7 天窗口约 17 小时。
+const MIN_ELAPSED_FOR_FORECAST = 0.1
 
 /** 一个限额窗口在面板上的画法：图标、名称、窗口长度，以及时间条分几段。 */
 type LimitWindow = {
@@ -34,6 +37,8 @@ type LimitWindow = {
  * 时间条是窗口已过的比例，分 5 段（每段一小时）或 7 段（每段一天）。
  * 分段只画在时间条上，"一格"只表示时间；额度条比时间条长，说明用得比时间
  * 走得快，额度条变橙。
+ * 额度条上实色之后的浅灰斜纹是按目前速度推算到重置时的用量；斜纹铺满整条，
+ * 说明照这个速度会在重置前用完。
  */
 export function limitsCard(card: Area, readings: EngineReadings): string {
   const x = card.x + CARD_PADDING
@@ -81,6 +86,7 @@ function limitBlock(
   const elapsed = isIdle ? 0 : windowElapsedRatio(limit, now, windowMs)
   const resetLine = isIdle ? '未开始计时' : resetText(limit, now) ?? ''
   const tone = paceTone(limit.percentUsed, elapsed)
+  const forecast = forecastPercent(limit.percentUsed, elapsed)
   const bar = { x: x + ROW_LABEL_WIDTH, w: w - ROW_LABEL_WIDTH, h: BAR_HEIGHT }
   const quotaBar = { ...bar, y: y + 9 }
   const timeBar = { ...bar, y: y + 21 }
@@ -94,7 +100,12 @@ function limitBlock(
     lineIcon(icon, column.x + 7, y - 4, 15, graphicColor(tone)) +
     labelValue({ x, y }, label, `${limit.percentUsed}%`, toneColor(tone)) +
     caption(x, rowBaseline(quotaBar), '额度', { size: 10 }) +
-    gaugeBar(quotaBar, limit.percentUsed / 100, graphicColor(tone)) +
+    gaugeBar(
+      quotaBar,
+      limit.percentUsed / 100,
+      graphicColor(tone),
+      forecast === null ? null : forecast / 100,
+    ) +
     caption(x, rowBaseline(timeBar), '时间', { size: 10 }) +
     timeGraphic +
     caption(x, y + 42, resetLine, { size: 10 })
@@ -122,6 +133,23 @@ export function paceTone(
   }
 
   return percentUsed / 100 > elapsedRatio ? 'warning' : undefined
+}
+
+/**
+ * 按窗口里到目前为止的平均速度，推算到重置时刻的用量百分比：已用 ÷ 已过比例。
+ * 超过 100 说明照这个速度会在重置前用完；与 paceTone 的橙色是同一个判据。
+ * 比不了时间（没有重置时刻、未开始计时），或窗口过了不到
+ * MIN_ELAPSED_FOR_FORECAST 时为 null。
+ */
+export function forecastPercent(
+  percentUsed: number,
+  elapsedRatio: number | null,
+): number | null {
+  if (elapsedRatio === null || elapsedRatio < MIN_ELAPSED_FOR_FORECAST) {
+    return null
+  }
+
+  return percentUsed / elapsedRatio
 }
 
 /**

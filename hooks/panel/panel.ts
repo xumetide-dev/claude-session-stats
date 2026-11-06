@@ -6,7 +6,7 @@ import { stepChart } from './charts'
 import { contextPage, usagePage } from './context-pages'
 import { dollarIcon } from './icons'
 import { limitsCard } from './limits-column'
-import { COLORS, FONT_FAMILY, GRADIENT_DEFS } from './palette'
+import { COLORS, FONT_FAMILY, PANEL_DEFS } from './palette'
 import { caption } from './primitives'
 import type { Area } from './primitives'
 import { runtimeCard, speedCard } from './time-cards'
@@ -68,7 +68,7 @@ export function buildPanelSvg(input: PanelInput): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${PANEL_WIDTH}" ` +
     `height="${PANEL_HEIGHT}" viewBox="0 0 ${PANEL_WIDTH} ${PANEL_HEIGHT}" ` +
-    `font-family="${FONT_FAMILY}"><defs>${GRADIENT_DEFS}</defs>${body}</svg>`
+    `font-family="${FONT_FAMILY}"><defs>${PANEL_DEFS}</defs>${body}</svg>`
   )
 }
 
